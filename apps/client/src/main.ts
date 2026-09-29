@@ -1,0 +1,70 @@
+import '@fontsource-variable/fredoka';
+import { Matrix, Vector3 } from '@babylonjs/core';
+import './styles.css';
+import { GameController } from './game-controller.ts';
+import { AssetLibrary } from './scene/assets.ts';
+import { BoardOverlay } from './scene/board-overlay.ts';
+import { DungeonView } from './scene/dungeon-view.ts';
+import { Effects } from './scene/effects.ts';
+import { World } from './scene/world.ts';
+import { el } from './ui/dom.ts';
+import { Hud } from './ui/hud.ts';
+import { LobbyUI } from './ui/lobby.ts';
+
+async function main(): Promise<void> {
+  const canvas = document.getElementById('scene') as HTMLCanvasElement;
+  const ui = document.getElementById('ui')!;
+  const labels = document.getElementById('labels')!;
+
+  const loading = el('div', 'loading', 'Lade das Gewölbe …');
+  ui.appendChild(loading);
+
+  const world = new World(canvas);
+  world.start();
+  const assets = new AssetLibrary(world.scene);
+  await assets.load((done, total) => {
+    loading.textContent = `Lade das Gewölbe … ${Math.round((done / total) * 100)} %`;
+  });
+  loading.remove();
+
+  const effects = new Effects(world.scene);
+  const dungeon = new DungeonView(world, assets, effects);
+  const overlay = new BoardOverlay(world.scene, world.glow);
+
+  let controller: GameController;
+  const hud = new Hud(ui, {
+    onEndTurn: () => controller.endTurn(),
+    onRestart: () => controller.restart(),
+  });
+  const lobby = new LobbyUI(ui, {
+    onCreate: (name) => controller.createGame(name),
+    onJoin: (code, name, takeOver) => controller.joinGame(code, name, takeOver),
+  });
+  controller = new GameController({ world, assets, effects, dungeon, overlay, hud, lobby, labels });
+  controller.start();
+
+  if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) exposeDebugHandle(world, controller);
+}
+
+/** Debug handle for automated smoke tests (dev builds or `?debug` only). */
+function exposeDebugHandle(world: World, controller: GameController): void {
+  // Project a world point to CSS pixels.
+  const toScreen = (x: number, y: number, z: number) => {
+    const engine = world.engine;
+    const p = Vector3.Project(
+      new Vector3(x, y, z),
+      Matrix.Identity(),
+      world.scene.getTransformMatrix(),
+      world.camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight()),
+    );
+    const s = engine.getHardwareScalingLevel();
+    return { x: p.x * s, y: p.y * s };
+  };
+  const focusTile = (x: number, y: number) => world.focus(new Vector3(x * 4, 0, y * 4));
+  (window as unknown as { __dungeon: unknown }).__dungeon = { world, controller, toScreen, focusTile };
+}
+
+main().catch((err) => {
+  console.error(err);
+  document.body.appendChild(el('pre', 'loading', `Fehler beim Start: ${String(err)}`));
+});

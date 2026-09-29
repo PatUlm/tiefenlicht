@@ -1,0 +1,199 @@
+import { describe, expect, it } from 'vitest';
+import { posKey, type DungeonDefinition } from '@dungeon/shared';
+import { Board, expandRects, isPropBlocking, propFootprint } from './board.ts';
+import { PROTOTYPE_DUNGEON } from './content/index.ts';
+import { computeReachable } from './movement.ts';
+import { validateDungeon } from './validate.ts';
+
+const withChanges = (changes: Partial<DungeonDefinition>): DungeonDefinition => ({ ...PROTOTYPE_DUNGEON, ...changes });
+
+/** Deliberately malformed variant (bypasses the type system, like hand-edited JSON). */
+const malformed = (changes: Record<string, unknown>): unknown => ({ ...PROTOTYPE_DUNGEON, ...changes });
+
+const hall = PROTOTYPE_DUNGEON.areas.find((a) => a.id === 'hall')!;
+const mage = PROTOTYPE_DUNGEON.areas.find((a) => a.id === 'mage')!;
+
+describe('validateDungeon', () => {
+  it('accepts the v0.1 prototype dungeon', () => {
+    expect(validateDungeon(PROTOTYPE_DUNGEON)).toEqual([]);
+  });
+
+  it('detects a blocking prop next to a door (softlock)', () => {
+    const errors = validateDungeon(
+      withChanges({
+        props: [...PROTOTYPE_DUNGEON.props, { id: 'x', kind: 'pillar', position: { x: 9, y: 6 }, facing: 'S' }],
+      }),
+    );
+    expect(errors.some((e) => e.includes('Anliegerfeld 9,6'))).toBe(true);
+  });
+
+  it('keeps monsters off the tiles next to door tiles', () => {
+    const errors = validateDungeon(
+      withChanges({
+        monsters: [...PROTOTYPE_DUNGEON.monsters, { id: 'monster-9', kind: 'skeletonMinion', name: 'x', position: { x: 4, y: 14 }, facing: 'N' }],
+      }),
+    );
+    expect(errors).toContain('Monster monster-9 steht neben Tür-Anliegerfeld 4,13');
+  });
+
+  it('detects doors inside a single area and doubly occupied tiles', () => {
+    const errors = validateDungeon(
+      withChanges({
+        doors: [
+          ...PROTOTYPE_DUNGEON.doors,
+          { id: 'door-9', name: 'x', style: 'iron', edges: [[{ x: 6, y: 1 }, { x: 7, y: 1 }]] },
+        ],
+        monsters: [...PROTOTYPE_DUNGEON.monsters, { id: 'monster-9', kind: 'skeletonMinion', name: 'x', position: { x: 7, y: 2 }, facing: 'S' }],
+      }),
+    );
+    expect(errors.some((e) => e.includes('innerhalb von hall'))).toBe(true);
+    expect(errors.some((e) => e.includes('doppelt belegt'))).toBe(true);
+  });
+
+  it('detects non-orthogonal door edges', () => {
+    const errors = validateDungeon(
+      withChanges({
+        doors: [...PROTOTYPE_DUNGEON.doors.slice(0, 2), { id: 'door-3', name: 'x', style: 'arcane', edges: [[{ x: 15, y: 12 }, { x: 16, y: 13 }]] }],
+      }),
+    );
+    expect(errors).toContain('Tür door-3: Kante 15,12–16,13 nicht orthogonal benachbart');
+  });
+
+  it('restricts double doors to two parallel, directly adjacent edges', () => {
+    const [door1, ...rest] = PROTOTYPE_DUNGEON.doors;
+    const gapped = { ...door1!, edges: [door1!.edges[0]!, [{ x: 11, y: 6 }, { x: 11, y: 7 }]] as const };
+    expect(validateDungeon(withChanges({ doors: [gapped, ...rest] }))).toContain(
+      'Tür door-1: Doppeltür-Kanten sind nicht parallel und direkt benachbart',
+    );
+    const triple = { ...door1!, edges: [...door1!.edges, [{ x: 11, y: 6 }, { x: 11, y: 7 }]] as const };
+    expect(validateDungeon(withChanges({ doors: [triple, ...rest] }))).toContain('Tür door-1 hat mehr als zwei Kanten');
+  });
+
+  it('detects overlapping areas and tiles outside the grid', () => {
+    const errors = validateDungeon(
+      withChanges({
+        areas: [...PROTOTYPE_DUNGEON.areas, { ...hall, id: 'annex', rects: [{ x: 14, y: 6, w: 7, h: 1 }] }],
+      }),
+    );
+    expect(errors).toContain('Feld 14,6 gehört zu hall und annex');
+    expect(errors).toContain('Bereich annex: Feld 20,6 außerhalb');
+  });
+
+  it('detects props spanning two areas', () => {
+    const errors = validateDungeon(
+      withChanges({
+        props: [...PROTOTYPE_DUNGEON.props, { id: 'long', kind: 'table', position: { x: 6, y: 6 }, size: { w: 1, h: 2 }, facing: 'S' }],
+      }),
+    );
+    expect(errors).toContain('Prop long liegt nicht vollständig in einem Bereich');
+  });
+
+  it('detects missing starts and starts in hidden areas', () => {
+    const [first] = PROTOTYPE_DUNGEON.heroStarts;
+    expect(validateDungeon(withChanges({ heroStarts: [first!] }))).toContain('Slot 1 braucht genau ein Startfeld');
+    const hidden = validateDungeon(withChanges({ heroStarts: [first!, { slot: 1, position: { x: 10, y: 8 }, facing: 'S' }] }));
+    expect(hidden).toContain('Start 1 liegt nicht in einem initial entdeckten Bereich');
+  });
+
+  it('detects duplicate ids and doubly decorated wall sides', () => {
+    const [torch] = PROTOTYPE_DUNGEON.wallDecor;
+    const errors = validateDungeon(
+      withChanges({
+        props: [...PROTOTYPE_DUNGEON.props, { ...PROTOTYPE_DUNGEON.props[0]!, position: { x: 8, y: 3 } }],
+        wallDecor: [...PROTOTYPE_DUNGEON.wallDecor, { ...torch!, id: 'hall-torch-copy', kind: 'banner' }],
+      }),
+    );
+    expect(errors).toContain('Prop-ID doppelt: hall-pillar-1');
+    expect(errors).toContain('Wandseite 6,0:N trägt mehrere Dekorationen');
+    expect(
+      validateDungeon(withChanges({ wallDecor: [...PROTOTYPE_DUNGEON.wallDecor, { ...torch!, position: { x: 7, y: 0 } }] })),
+    ).toContain('Deko-ID doppelt: hall-torch-1');
+  });
+
+  it('detects unreachable areas and an unsatisfiable objective', () => {
+    const errors = validateDungeon(withChanges({ doors: PROTOTYPE_DUNGEON.doors.filter((d) => d.id !== 'door-3') }));
+    expect(errors).toContain('Bereich mage von Start 0 unerreichbar');
+    expect(errors).toContain('Siegbedingung unerfüllbar: mage nie entdeckbar');
+  });
+
+  it('detects wall decor that does not hang on a wall', () => {
+    const errors = validateDungeon(
+      withChanges({ wallDecor: [{ id: 'bad', kind: 'torch', position: { x: 7, y: 3 }, wall: 'N' }] }),
+    );
+    expect(errors).toContain('Deko bad hängt an keiner Wand');
+  });
+
+  describe('shape checks (malformed JSON never throws)', () => {
+    it('rejects non-objects and missing lists', () => {
+      expect(validateDungeon(null)).toEqual(['Karte ist kein Objekt']);
+      expect(validateDungeon(malformed({ wallDecor: undefined }))).toContain('wallDecor: Liste erwartet');
+    });
+
+    it('rejects unknown enum values', () => {
+      const errors = validateDungeon(
+        malformed({
+          props: [{ ...PROTOTYPE_DUNGEON.props[0]!, kind: 'pilar', facing: 'South' }],
+          doors: [{ ...PROTOTYPE_DUNGEON.doors[0]!, style: 'arcan' }],
+          wallDecor: [{ ...PROTOTYPE_DUNGEON.wallDecor[0]!, wall: 'X' }],
+          areas: [{ ...hall, theme: 'lava' }, ...PROTOTYPE_DUNGEON.areas.slice(1)],
+        }),
+      );
+      expect(errors).toEqual(
+        expect.arrayContaining([
+          'props[0].kind: ungültiger Wert "pilar"',
+          'props[0].facing: ungültiger Wert "South"',
+          'doors[0].style: ungültiger Wert "arcan"',
+          'wallDecor[0].wall: ungültiger Wert "X"',
+          'areas[0].theme: ungültiger Wert "lava"',
+        ]),
+      );
+    });
+
+    it('rejects non-integer coordinates, sizes and rules', () => {
+      const errors = validateDungeon(
+        malformed({
+          areas: [{ ...mage, rects: [{ x: 11, y: 13, w: 0, h: 7.5 }] }],
+          monsters: [{ ...PROTOTYPE_DUNGEON.monsters[0]!, position: { x: '4', y: 18 } }],
+          rules: { movementPerTurn: 0, actionsPerTurn: 1 },
+        }),
+      );
+      expect(errors).toEqual(
+        expect.arrayContaining([
+          'areas[0].rects[0].w: Ganzzahl ≥ 1 erwartet',
+          'areas[0].rects[0].h: Ganzzahl ≥ 1 erwartet',
+          'monsters[0].position.x: Ganzzahl erwartet',
+          'rules.movementPerTurn: Ganzzahl ≥ 1 erwartet',
+        ]),
+      );
+    });
+
+    it('rejects start slots outside the player range', () => {
+      const errors = validateDungeon(
+        malformed({ heroStarts: [...PROTOTYPE_DUNGEON.heroStarts, { slot: 2, position: { x: 11, y: 1 }, facing: 'S' }] }),
+      );
+      expect(errors).toContain('heroStarts[2].slot: Ganzzahl 0–1 erwartet');
+    });
+  });
+});
+
+describe('prototype map regression', () => {
+  it('every free tile is reachable from the start once all doors are open', () => {
+    const d = PROTOTYPE_DUNGEON;
+    const board = new Board({
+      areas: d.areas.map((a) => ({ id: a.id, tiles: expandRects(a.rects) })),
+      doors: d.doors.map((door) => ({ id: door.id, edges: door.edges, open: true })),
+      props: d.props,
+      monsters: d.monsters,
+      heroes: [],
+    });
+    const start = d.heroStarts[0]!.position;
+    const reachable = computeReachable(board, 'probe', start, Number.MAX_SAFE_INTEGER);
+    const blocked = new Set([
+      ...d.props.filter(isPropBlocking).flatMap((p) => propFootprint(p).map(posKey)),
+      ...d.monsters.map((m) => posKey(m.position)),
+    ]);
+    const free = d.areas.flatMap((a) => expandRects(a.rects)).filter((t) => !blocked.has(posKey(t)) && posKey(t) !== posKey(start));
+    const unreachable = free.filter((t) => !reachable.has(posKey(t))).map(posKey);
+    expect(unreachable).toEqual([]);
+  });
+});

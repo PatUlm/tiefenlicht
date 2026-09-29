@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // Server-only package exports (e.g. @dungeon/game-core/content) use the "node" condition.
+    "customConditions": ["node"]
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,325 @@
+import {
+  PLAYERS_PER_GAME,
+  directionTo,
+  posKey,
+  samePos,
+  type DoorDefinition,
+  type DungeonDefinition,
+  type GameAction,
+  type GameEvent,
+  type GameView,
+  type PlayerId,
+  type Position,
+  type RejectionCode,
+  type TurnView,
+} from '@dungeon/shared';
+import { Board, type BoardDoor } from './board.ts';
+import { computeReachable, findPath } from './movement.ts';
+import { HERO_TEMPLATES, heroIdForSlot, type GameState, type HeroState, type PlayerState } from './state.ts';
+import { areasOfDoor, buildTileAreaIndex, createView } from './visibility.ts';
+
+export type ActionResult =
+  | { readonly ok: true; readonly state: GameState; readonly events: readonly GameEvent[] }
+  | { readonly ok: false; readonly code: RejectionCode; readonly message: string };
+
+const REJECTION_MESSAGES: Record<RejectionCode, string> = {
+  GAME_NOT_RUNNING: 'Das Spiel läuft gerade nicht.',
+  NOT_YOUR_TURN: 'Du bist nicht am Zug.',
+  NOT_YOUR_CHARACTER: 'Diese Figur gehört dir nicht.',
+  UNKNOWN_CHARACTER: 'Unbekannte Figur.',
+  UNKNOWN_DOOR: 'Unbekannte Tür.',
+  INVALID_TARGET: 'Dieses Feld kann nicht betreten werden.',
+  TARGET_OCCUPIED: 'Das Feld ist belegt.',
+  UNREACHABLE: 'Dorthin führt kein Weg.',
+  NOT_ENOUGH_MOVEMENT: 'Nicht genug Bewegungspunkte.',
+  DOOR_ALREADY_OPEN: 'Die Tür ist bereits offen.',
+  DOOR_NOT_ADJACENT: 'Stelle dich direkt an die Tür.',
+  NO_ACTION_LEFT: 'Deine Aktion für diesen Zug ist verbraucht.',
+};
+
+function reject(code: RejectionCode): ActionResult {
+  return { ok: false, code, message: REJECTION_MESSAGES[code] };
+}
+
+function freshTurn(dungeon: DungeonDefinition, activePlayerId: PlayerId, round: number): TurnView {
+  return {
+    round,
+    activePlayerId,
+    movementLeft: dungeon.rules.movementPerTurn,
+    actionsLeft: dungeon.rules.actionsPerTurn,
+  };
+}
+
+function createHero(dungeon: DungeonDefinition, slot: number, ownerId: PlayerId): HeroState {
+  const template = HERO_TEMPLATES[slot];
+  const start = dungeon.heroStarts.find((s) => s.slot === slot);
+  if (!template || !start) throw new Error(`Dungeon has no hero start for slot ${slot}`);
+  return {
+    id: heroIdForSlot(slot),
+    kind: template.kind,
+    name: template.name,
+    position: start.position,
+    facing: start.facing,
+    ownerId,
+  };
+}
+
+function sortedPlayers(state: GameState): PlayerState[] {
+  return [...state.players].sort((a, b) => a.slot - b.slot);
+}
+
+// ---------------------------------------------------------------------------
+// Setup and session-level transitions
+// ---------------------------------------------------------------------------
+
+export function createGame(gameId: string, dungeon: DungeonDefinition): GameState {
+  return {
+    gameId,
+    version: 0,
+    phase: 'waiting',
+    dungeon,
+    players: [],
+    heroes: [],
+    monsters: dungeon.monsters.map((m) => ({ ...m })),
+    openDoors: [],
+    revealedAreas: dungeon.areas.filter((a) => a.initiallyRevealed).map((a) => a.id),
+    turn: null,
+    objectiveCompleted: false,
+  };
+}
+
+export type JoinResult =
+  | { readonly ok: true; readonly state: GameState; readonly events: readonly GameEvent[] }
+  | { readonly ok: false; readonly code: 'GAME_FULL' };
+
+/** Adds a player to the next free slot. The game starts as soon as all slots are taken. */
+export function addPlayer(state: GameState, playerId: PlayerId, name: string): JoinResult {
+  if (state.players.length >= PLAYERS_PER_GAME) return { ok: false, code: 'GAME_FULL' };
+  const slot = state.players.length;
+  const hero = createHero(state.dungeon, slot, playerId);
+  const player: PlayerState = { id: playerId, name, slot, heroId: hero.id, connected: true };
+  let next: GameState = {
+    ...state,
+    version: state.version + 1,
+    players: [...state.players, player],
+    heroes: [...state.heroes, hero],
+  };
+  const events: GameEvent[] = [{ type: 'PLAYER_JOINED', playerId }];
+
+  if (next.players.length === PLAYERS_PER_GAME) {
+    const first = sortedPlayers(next)[0]!;
+    next = { ...next, phase: 'playing', turn: freshTurn(next.dungeon, first.id, 1) };
+    events.push({ type: 'GAME_STARTED' }, { type: 'TURN_STARTED', playerId: first.id, round: 1 });
+  }
+  return { ok: true, state: next, events };
+}
+
+export function setPlayerConnected(
+  state: GameState,
+  playerId: PlayerId,
+  connected: boolean,
+): { state: GameState; events: GameEvent[] } {
+  const player = state.players.find((p) => p.id === playerId);
+  if (!player || player.connected === connected) return { state, events: [] };
+  return {
+    state: {
+      ...state,
+      version: state.version + 1,
+      players: state.players.map((p) => (p.id === playerId ? { ...p, connected } : p)),
+    },
+    events: [{ type: 'PLAYER_CONNECTION', playerId, connected }],
+  };
+}
+
+/** Slot takeover (M9): a new person continues a disconnected player's hero. */
+export function renamePlayer(state: GameState, playerId: PlayerId, name: string): GameState {
+  return {
+    ...state,
+    version: state.version + 1,
+    players: state.players.map((p) => (p.id === playerId ? { ...p, name } : p)),
+  };
+}
+
+function restartGame(state: GameState, byPlayerId: PlayerId): ActionResult {
+  let next: GameState = {
+    ...createGame(state.gameId, state.dungeon),
+    version: state.version + 1,
+    players: state.players,
+    heroes: state.players.map((p) => createHero(state.dungeon, p.slot, p.id)),
+  };
+  const events: GameEvent[] = [{ type: 'GAME_RESTARTED', byPlayerId }];
+  if (next.players.length === PLAYERS_PER_GAME) {
+    const first = sortedPlayers(next)[0]!;
+    next = { ...next, phase: 'playing', turn: freshTurn(next.dungeon, first.id, 1) };
+    events.push({ type: 'TURN_STARTED', playerId: first.id, round: 1 });
+  }
+  return { ok: true, state: next, events };
+}
+
+// ---------------------------------------------------------------------------
+// Game actions
+// ---------------------------------------------------------------------------
+
+export function isAdjacentToDoor(door: { readonly edges: DoorDefinition['edges'] }, p: Position): boolean {
+  return door.edges.some(([a, b]) => samePos(a, p) || samePos(b, p));
+}
+
+/** Direction a hero standing on a door edge tile faces to look through the door. */
+function facingTowardsDoor(door: DoorDefinition, p: Position) {
+  for (const [a, b] of door.edges) {
+    if (samePos(a, p)) return directionTo(a, b);
+    if (samePos(b, p)) return directionTo(b, a);
+  }
+  return undefined;
+}
+
+/**
+ * Applies a player's action to the authoritative state. Pure: never mutates `state`.
+ * Rules: docs/game-mechanics.md M3–M7.
+ */
+export function applyAction(state: GameState, playerId: PlayerId, action: GameAction): ActionResult {
+  if (!state.players.some((p) => p.id === playerId)) return reject('NOT_YOUR_TURN');
+
+  const turn = state.turn;
+  if (state.phase !== 'playing' || !turn) return reject('GAME_NOT_RUNNING');
+  // Any seated player may restart at any time while the game runs (M7).
+  if (action.type === 'RESTART_GAME') return restartGame(state, playerId);
+  if (turn.activePlayerId !== playerId) return reject('NOT_YOUR_TURN');
+
+  switch (action.type) {
+    case 'END_TURN':
+      return endTurn(state, turn);
+    case 'MOVE_CHARACTER': {
+      const hero = state.heroes.find((h) => h.id === action.characterId);
+      if (!hero) return reject('UNKNOWN_CHARACTER');
+      if (hero.ownerId !== playerId) return reject('NOT_YOUR_CHARACTER');
+      return moveHero(state, turn, hero, action.target);
+    }
+    case 'OPEN_DOOR': {
+      const hero = state.heroes.find((h) => h.id === action.characterId);
+      if (!hero) return reject('UNKNOWN_CHARACTER');
+      if (hero.ownerId !== playerId) return reject('NOT_YOUR_CHARACTER');
+      return openDoor(state, turn, hero, action.doorId);
+    }
+    default: {
+      // Compile-time exhaustiveness; at runtime a stray message type is rejected, never thrown.
+      const unknownAction: never = action;
+      void unknownAction;
+      return reject('GAME_NOT_RUNNING');
+    }
+  }
+}
+
+function moveHero(state: GameState, turn: TurnView, hero: HeroState, target: Position): ActionResult {
+  // Movement is evaluated on the filtered view: hidden tiles simply do not exist,
+  // so rejections cannot leak anything about unrevealed areas (M4, M6).
+  const board = new Board(createView(state));
+  const result = findPath(board, hero.id, hero.position, target, turn.movementLeft);
+  if (!result.ok) return reject(result.reason);
+
+  const path = result.path;
+  const last = path[path.length - 1]!;
+  const beforeLast = path.length > 1 ? path[path.length - 2]! : hero.position;
+  const moved: HeroState = { ...hero, position: last, facing: directionTo(beforeLast, last) };
+  return {
+    ok: true,
+    state: {
+      ...state,
+      version: state.version + 1,
+      heroes: state.heroes.map((h) => (h.id === hero.id ? moved : h)),
+      turn: { ...turn, movementLeft: turn.movementLeft - path.length },
+    },
+    events: [{ type: 'CHARACTER_MOVED', characterId: hero.id, path }],
+  };
+}
+
+function openDoor(state: GameState, turn: TurnView, hero: HeroState, doorId: string): ActionResult {
+  const tileAreas = buildTileAreaIndex(state);
+  const revealed = new Set(state.revealedAreas);
+  const door = state.dungeon.doors.find((d) => d.id === doorId);
+  // Doors not touching a revealed area are unknown to players.
+  if (!door || !areasOfDoor(door, tileAreas).some((id) => revealed.has(id))) return reject('UNKNOWN_DOOR');
+  if (state.openDoors.includes(door.id)) return reject('DOOR_ALREADY_OPEN');
+  if (!isAdjacentToDoor(door, hero.position)) return reject('DOOR_NOT_ADJACENT');
+  if (turn.actionsLeft <= 0) return reject('NO_ACTION_LEFT');
+
+  const events: GameEvent[] = [{ type: 'DOOR_OPENED', doorId: door.id, characterId: hero.id }];
+  const newlyRevealed = areasOfDoor(door, tileAreas).filter((id) => !revealed.has(id));
+  for (const areaId of newlyRevealed) {
+    revealed.add(areaId);
+    const monsterIds = state.monsters
+      .filter((m) => tileAreas.get(posKey(m.position)) === areaId)
+      .map((m) => m.id);
+    events.push({ type: 'AREA_REVEALED', areaId, viaDoorId: door.id, monsterIds });
+  }
+
+  const facing = facingTowardsDoor(door, hero.position) ?? hero.facing;
+  let objectiveCompleted = state.objectiveCompleted;
+  if (!objectiveCompleted && isObjectiveMet(state.dungeon, revealed)) {
+    objectiveCompleted = true;
+    events.push({ type: 'GAME_WON' });
+  }
+
+  return {
+    ok: true,
+    state: {
+      ...state,
+      version: state.version + 1,
+      openDoors: [...state.openDoors, door.id],
+      revealedAreas: [...revealed],
+      heroes: state.heroes.map((h) => (h.id === hero.id ? { ...h, facing } : h)),
+      turn: { ...turn, actionsLeft: turn.actionsLeft - 1 },
+      objectiveCompleted,
+    },
+    events,
+  };
+}
+
+function isObjectiveMet(dungeon: DungeonDefinition, revealed: ReadonlySet<string>): boolean {
+  switch (dungeon.victory.type) {
+    case 'revealAllAreas':
+      return dungeon.areas.every((a) => revealed.has(a.id));
+  }
+}
+
+function endTurn(state: GameState, turn: TurnView): ActionResult {
+  const players = sortedPlayers(state);
+  const index = players.findIndex((p) => p.id === turn.activePlayerId);
+  const nextIndex = (index + 1) % players.length;
+  const next = players[nextIndex]!;
+  const round = nextIndex === 0 ? turn.round + 1 : turn.round;
+  return {
+    ok: true,
+    state: { ...state, version: state.version + 1, turn: freshTurn(state.dungeon, next.id, round) },
+    events: [{ type: 'TURN_STARTED', playerId: next.id, round }],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Client-side helpers (UI hints only; the server stays authoritative)
+// ---------------------------------------------------------------------------
+
+/** Closed doors the player's hero could open right now. */
+export function openableDoors(view: GameView, playerId: PlayerId): BoardDoor[] {
+  const turn = view.turn;
+  if (view.phase !== 'playing' || !turn || turn.activePlayerId !== playerId || turn.actionsLeft <= 0) return [];
+  const hero = view.heroes.find((h) => h.ownerId === playerId);
+  if (!hero) return [];
+  return view.doors.filter((d) => !d.open && isAdjacentToDoor(d, hero.position));
+}
+
+/**
+ * M3 UI hint: true if the active player can still reach a tile, or can still use
+ * the action on a closed door from the current or a reachable tile.
+ */
+export function canStillAct(view: GameView, playerId: PlayerId): boolean {
+  const turn = view.turn;
+  if (view.phase !== 'playing' || !turn || turn.activePlayerId !== playerId) return false;
+  const hero = view.heroes.find((h) => h.ownerId === playerId);
+  if (!hero) return false;
+  const reachable = computeReachable(new Board(view), hero.id, hero.position, turn.movementLeft);
+  if (reachable.size > 0) return true;
+  if (turn.actionsLeft <= 0) return false;
+  const standable = [hero.position, ...[...reachable.values()].map((r) => r.position)];
+  return view.doors.some((d) => !d.open && standable.some((p) => isAdjacentToDoor(d, p)));
+}

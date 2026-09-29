@@ -1,0 +1,22 @@
+{
+  "name": "dungeon-game",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@12.8.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @dungeon/server --filter @dungeon/client dev",
+    "build": "pnpm --filter @dungeon/client build && pnpm --filter @dungeon/server build",
+    "start": "pnpm --filter @dungeon/server start",
+    "test": "vitest run",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}
