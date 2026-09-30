@@ -3,3 +3,5 @@ dist/
 *.tsbuildinfo
 .vite/
 coverage/
+# SSH-Tunnel-Sockets von bin/plan.sh und bin/deploy.sh
+*.sock

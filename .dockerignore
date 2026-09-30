@@ -1,5 +1,13 @@
+# Nur Quellcode, Lockfile und Assets werden fuer den Build gebraucht. Alles andere
+# aus dem Build-Kontext (und damit aus dem SSH-Transfer zum Server) fernhalten.
 **/node_modules
 **/dist
 .git
+.gitignore
 docs
+bin
+terraform
+docker-compose.yml
+Taskfile.yml
 *.md
+*.sock

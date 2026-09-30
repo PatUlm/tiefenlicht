@@ -1,0 +1,5 @@
+# Nach backend.hcl kopieren (gitignored) und ausfuellen.
+# Genutzt von: terraform init -backend-config=backend.hcl  (task init)
+bucket = "<state-bucket>"
+key    = "tiefenlicht/terraform.tfstate"
+region = "eu-central-1"

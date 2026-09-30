@@ -1,0 +1,31 @@
+version: '3'
+
+# Deployment-Automation fuer Tiefenlicht auf netcup1 (tiefenlicht.nieda.de).
+# Entwicklung/Tests laufen weiter ueber die pnpm-Scripts in package.json.
+tasks:
+
+  # Backend-Config (bucket/key/region) kommt aus terraform/backend.hcl (gitignored).
+  init: terraform -chdir=terraform init -backend-config=backend.hcl
+
+  # Image lokal bauen (Smoke-Test).
+  build: docker build -f Dockerfile -t tiefenlicht:local .
+
+  # Lokale Demo im Container (http://localhost:8080).
+  up: docker compose up -d --build
+  down: docker compose down
+
+  # Image auf dem netcup1-Server bauen (kein Registry-Push).
+  release: ./bin/release.sh {{.CLI_ARGS}}
+
+  # Terraform-Plan gegen netcup1 pruefen (read-only).
+  plan: ./bin/plan.sh {{.CLI_ARGS}}
+
+  # Terraform-Stack auf netcup1 anwenden.
+  deploy: ./bin/deploy.sh {{.CLI_ARGS}}
+
+  # Bauen, Plan zeigen, dann anwenden.
+  deploy-full:
+    cmds:
+      - ./bin/release.sh
+      - ./bin/plan.sh
+      - ./bin/deploy.sh

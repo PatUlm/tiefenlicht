@@ -43,7 +43,9 @@ const serveStatic = staticDir && existsSync(staticDir) ? createStaticHandler(sta
 
 const httpServer = createServer((req, res) => {
   if (req.url === '/healthz') {
-    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, games: registry.size }));
+    res
+      .writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+      .end(JSON.stringify({ ok: true, games: registry.size, version: process.env.APP_VERSION ?? 'dev' }));
     return;
   }
   if (serveStatic) {

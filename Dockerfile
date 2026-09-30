@@ -14,10 +14,14 @@ RUN pnpm test && pnpm build
 # Runtime stage: a single self-contained server bundle that also serves the client.
 FROM node:24-slim
 WORKDIR /app
+# Image-Tag, den bin/release.sh als --build-arg reinreicht (Default: dev);
+# erscheint unter /healthz.
+ARG APP_VERSION=dev
 ENV NODE_ENV=production \
     PORT=8080 \
     HOST=0.0.0.0 \
-    STATIC_DIR=/app/public
+    STATIC_DIR=/app/public \
+    APP_VERSION=${APP_VERSION}
 COPY --from=build /app/apps/server/dist/server.mjs ./server.mjs
 COPY --from=build /app/apps/client/dist ./public
 USER node
