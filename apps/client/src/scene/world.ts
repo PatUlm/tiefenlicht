@@ -45,8 +45,10 @@ export class World {
     const scene = new Scene(this.engine);
     this.scene = scene;
     scene.useRightHandedSystem = true;
-    scene.clearColor = new Color4(0.07, 0.045, 0.13, 1);
-    scene.ambientColor = new Color3(0.1, 0.08, 0.14);
+    // Colour scheme (see palette.ts): neutral light, so stone reads grey and wood
+    // brown; colour comes from accents and local torch/magic light pools.
+    scene.clearColor = new Color4(0.055, 0.06, 0.085, 1);
+    scene.ambientColor = new Color3(0.08, 0.08, 0.09);
 
     this.desiredAlpha = this.alphaForView(0);
     const camera = new ArcRotateCamera('camera', this.desiredAlpha, BETA, this.desiredRadius, Vector3.Zero(), scene);
@@ -57,17 +59,17 @@ export class World {
     this.camera = camera;
 
     this.hemi = new HemisphericLight('ambient', new Vector3(0.2, 1, 0.1), scene);
-    this.hemi.intensity = 1.05;
-    this.hemi.diffuse = new Color3(0.86, 0.82, 1);
-    this.hemi.groundColor = new Color3(0.52, 0.44, 0.66);
+    this.hemi.intensity = 0.74;
+    this.hemi.diffuse = new Color3(1, 0.98, 0.95);
+    this.hemi.groundColor = new Color3(0.4, 0.39, 0.4);
     this.hemi.specular = Color3.Black();
 
     // Key light from the default camera side, so the tall back walls are lit
     // and shadows fall away from the viewer.
     const key = new DirectionalLight('key', new Vector3(-0.4, -1, -0.55).normalize(), scene);
     key.position = new Vector3(80, 80, 110);
-    key.intensity = 0.95;
-    key.diffuse = new Color3(1, 0.93, 0.85);
+    key.intensity = 0.78;
+    key.diffuse = new Color3(1, 0.95, 0.88);
     key.specular = new Color3(0.2, 0.2, 0.2);
     key.autoCalcShadowZBounds = true;
     this.shadows = new ShadowGenerator(2048, key);
@@ -78,7 +80,7 @@ export class World {
     this.shadows.darkness = 0.45;
 
     this.glow = new GlowLayer('glow', scene, { mainTextureSamples: 2, blurKernelSize: 48 });
-    this.glow.intensity = 0.85;
+    this.glow.intensity = 0.7;
 
     const pipeline = new DefaultRenderingPipeline('pipeline', true, scene, [camera]);
     pipeline.samples = 4;
@@ -91,14 +93,14 @@ export class World {
     const ip = pipeline.imageProcessing;
     ip.toneMappingEnabled = true;
     ip.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_KHR_PBR_NEUTRAL;
-    ip.exposure = 1.1;
-    ip.contrast = 1.08;
+    ip.exposure = 1.05;
+    ip.contrast = 1.12;
     ip.vignetteEnabled = true;
-    ip.vignetteWeight = 1.6;
-    ip.vignetteColor = new Color4(0.08, 0.02, 0.15, 0);
+    ip.vignetteWeight = 1.4;
+    ip.vignetteColor = new Color4(0.02, 0.02, 0.04, 0);
     ip.vignetteBlendMode = ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
     ip.colorCurvesEnabled = true;
-    ip.colorCurves!.globalSaturation = 25;
+    ip.colorCurves!.globalSaturation = 10;
 
     scene.onBeforeRenderObservable.add(() => this.updateCamera());
     window.addEventListener('resize', () => this.engine.resize());

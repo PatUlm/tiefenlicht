@@ -38,7 +38,7 @@ export class BoardOverlay {
     const gridTex = this.roundedRectTexture('overlay-grid', 0, 0.55);
 
     this.reachSource = this.plane('reach', TILE_SIZE, this.material('reach', tileTex, new Color3(0.35, 0.85, 0.78), 0.55));
-    this.gridSource = this.plane('grid', 4, this.material('grid', gridTex, new Color3(0.85, 0.78, 1), 0.12));
+    this.gridSource = this.plane('grid', 4, this.material('grid', gridTex, new Color3(0.92, 0.92, 0.9), 0.1));
     this.dotSource = MeshBuilder.CreateDisc('path-dot', { radius: 0.32, tessellation: 20 }, scene);
     this.dotSource.rotation.x = Math.PI / 2;
     this.dotSource.bakeCurrentTransformIntoVertices();

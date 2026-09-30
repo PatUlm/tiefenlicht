@@ -11,8 +11,10 @@ import {
   type InstancedMesh,
   type Material,
   type Scene,
+  type Texture,
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
+import { createDungeonPalettes, STONE_MODELS } from './palette.ts';
 
 /** Static dungeon modules: one mesh each, rendered as instances. */
 export const DUNGEON_MODELS = [
@@ -96,16 +98,19 @@ export class AssetLibrary {
   constructor(private readonly scene: Scene) {}
 
   async load(onProgress: (loaded: number, total: number) => void): Promise<void> {
+    // Dungeon models get the recoloured palette (see palette.ts); figures keep theirs.
+    const palettes = await createDungeonPalettes(this.scene);
+    const paletteFor = (name: string) => palettes[STONE_MODELS.has(name) ? 'stone' : 'base'];
     const jobs: (() => Promise<void>)[] = [
       ...DUNGEON_MODELS.map((name) => async () => {
-        this.sources.set(name, await this.loadSingleMesh(`/models/dungeon/${name}.glb`, name));
+        this.sources.set(name, await this.loadSingleMesh(`/models/dungeon/${name}.glb`, name, paletteFor(name)));
       }),
       ...WEAPON_MODELS.map((name) => async () => {
         this.weapons.set(name, await this.loadSingleMesh(`/models/weapons/${name}.gltf`, name));
       }),
       ...HIERARCHY_MODELS.map((name) => async () => {
         const container = await LoadAssetContainerAsync(`/models/dungeon/${name}.glb`, this.scene);
-        this.convertMaterials(container);
+        this.convertMaterials(container, paletteFor(name));
         this.hierarchies.set(name, container);
       }),
       ...CHARACTER_MODELS.map((name) => async () => {
@@ -178,9 +183,9 @@ export class AssetLibrary {
     };
   }
 
-  private async loadSingleMesh(url: string, name: string): Promise<Mesh> {
+  private async loadSingleMesh(url: string, name: string, palette?: Texture): Promise<Mesh> {
     const container = await LoadAssetContainerAsync(url, this.scene);
-    this.convertMaterials(container);
+    this.convertMaterials(container, palette);
     container.addAllToScene();
     const meshes = container.meshes.filter((m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0);
     let mesh: Mesh;
@@ -204,9 +209,13 @@ export class AssetLibrary {
     return mesh;
   }
 
-  private convertMaterials(container: AssetContainer): void {
+  private convertMaterials(container: AssetContainer, palette?: Texture): void {
     for (const mesh of container.meshes) {
-      if (mesh.material) mesh.material = this.toStandard(mesh.material);
+      if (!mesh.material) continue;
+      const std = this.toStandard(mesh.material);
+      // Every dungeon file has its own material, so swapping the texture is local to it.
+      if (palette) std.diffuseTexture = palette;
+      mesh.material = std;
     }
   }
 

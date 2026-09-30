@@ -155,9 +155,10 @@ export class DungeonView {
     this.props = new PropFactory(world.scene, assets, effects);
     this.foundation = MeshBuilder.CreateBox('foundation', { width: CELL, height: 2.6, depth: CELL }, world.scene);
     const mat = new StandardMaterial('foundation', world.scene);
-    mat.diffuseColor = new Color3(0.13, 0.1, 0.2);
+    // Dark neutral stone slab under the board (shows through floor grates).
+    mat.diffuseColor = new Color3(0.2, 0.195, 0.2);
     mat.specularColor = Color3.Black();
-    mat.emissiveColor = new Color3(0.02, 0.01, 0.04);
+    mat.emissiveColor = new Color3(0.015, 0.015, 0.02);
     this.foundation.material = mat;
     this.foundation.isVisible = false;
     this.foundation.isPickable = false;
@@ -259,7 +260,7 @@ export class DungeonView {
       const max = new Vector3(Math.max(...xs) * CELL + 1, area.theme === 'crypt' ? 1.2 : 5, Math.max(...ys) * CELL + 1);
       visual.particles.push(
         area.theme === 'crypt'
-          ? this.effects.groundFog(min, max, new Color4(0.55, 0.85, 0.65, 0.14))
+          ? this.effects.groundFog(min, max, new Color4(0.5, 0.78, 0.62, 0.2))
           : this.effects.sparkles(Vector3.Center(min, max), new Color4(0.7, 0.6, 1, 0.8), new Color4(0.4, 0.8, 1, 0.6), (max.x - min.x) / 2, 14),
       );
     }
@@ -366,7 +367,7 @@ export class DungeonView {
     const pickMeshes: Mesh[] = [];
     const materials: StandardMaterial[] = [];
     const mystery: ParticleSystem[] = [];
-    const tint = { grand: new Color3(1.05, 0.92, 0.8), iron: new Color3(0.55, 0.62, 0.78), arcane: new Color3(0.75, 0.55, 1.15) }[view.style];
+    const tint = { grand: new Color3(1, 0.95, 0.9), iron: new Color3(0.6, 0.61, 0.64), arcane: new Color3(0.75, 0.55, 1.15) }[view.style];
     const baseEmissive = view.style === 'arcane' ? new Color3(0.22, 0.08, 0.42) : Color3.Black();
     const centers = view.edges.map(([a, b]) => Vector3.Center(tileCenter(a), tileCenter(b)));
     const doorCenter = this.doorCenter(view);

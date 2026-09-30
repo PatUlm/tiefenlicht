@@ -157,7 +157,7 @@ export class PropFactory {
             flameLocal.add(new Vector3(0, 0.2, 0.9)),
             this.effects.flameLightColor(tint),
             tint === 'fire' ? 1.3 : 1.5,
-            26,
+            21,
           );
           light.parent = root;
           visual.lights.push(light);
@@ -228,8 +228,8 @@ export class PropFactory {
   }
 
   private buildSarcophagus(visual: PropVisual, lengthTiles: number): void {
-    const stone = this.flat('sarcophagus-stone', new Color3(0.55, 0.57, 0.62));
-    const lidMat = this.flat('sarcophagus-lid', new Color3(0.63, 0.66, 0.72));
+    const stone = this.flat('sarcophagus-stone', new Color3(0.42, 0.42, 0.41));
+    const lidMat = this.flat('sarcophagus-lid', new Color3(0.5, 0.5, 0.48));
     const trim = this.flat('sarcophagus-trim', new Color3(0.8, 0.62, 0.3));
     const length = lengthTiles * CELL - 1.2;
     const base = MeshBuilder.CreateBox('sarc-base', { width: 2.4, height: 1.4, depth: length }, this.scene);
@@ -264,8 +264,8 @@ export class PropFactory {
   }
 
   private buildBookshelf(visual: PropVisual, seed: number): void {
-    const wood = this.flat('shelf-wood', new Color3(0.52, 0.3, 0.18));
-    const woodDark = this.flat('shelf-wood-dark', new Color3(0.36, 0.2, 0.12));
+    const wood = this.flat('shelf-wood', new Color3(0.42, 0.29, 0.19));
+    const woodDark = this.flat('shelf-wood-dark', new Color3(0.27, 0.18, 0.12));
     const bookColors = [
       new Color3(0.85, 0.25, 0.3),
       new Color3(0.25, 0.55, 0.9),
@@ -346,7 +346,7 @@ export class PropFactory {
     visual.particles.push(this.effects.sparkles(new Vector3(0, 1.8, 0), new Color4(0.5, 1, 0.5, 1), new Color4(0.2, 0.9, 0.4, 1), 0.7, 22));
     visual.particles.push(this.effects.flame(new Vector3(0, 0.2, 0), 'fire', 0.8));
     if (withLight) {
-      const light = this.effects.pointLight('cauldron', new Vector3(0, 3, 0), new Color3(0.35, 1, 0.45), 1.1, 18);
+      const light = this.effects.pointLight('cauldron', new Vector3(0, 3, 0), new Color3(0.5, 1, 0.55), 0.9, 16);
       light.parent = visual.root;
       visual.lights.push(light);
     }
@@ -394,15 +394,15 @@ export class PropFactory {
     });
     visual.particles.push(this.effects.sparkles(new Vector3(0, 1.4, 0), new Color4(0.6, 0.95, 1, 1), new Color4(0.75, 0.5, 1, 1), 1.1, 35));
     if (withLight) {
-      const light = this.effects.pointLight('crystal', new Vector3(0, 3.2, 0), new Color3(0.45, 0.8, 1), 1.6, 26);
+      const light = this.effects.pointLight('crystal', new Vector3(0, 3.2, 0), new Color3(0.55, 0.82, 1), 1.3, 22);
       light.parent = visual.root;
       visual.lights.push(light);
     }
   }
 
   private buildStatue(visual: PropVisual): void {
-    const stone = this.flat('statue-stone', new Color3(0.66, 0.68, 0.74));
-    const pedestalMat = this.flat('statue-pedestal', new Color3(0.42, 0.4, 0.5));
+    const stone = this.flat('statue-stone', new Color3(0.54, 0.54, 0.53));
+    const pedestalMat = this.flat('statue-pedestal', new Color3(0.36, 0.36, 0.35));
     const pedestal = MeshBuilder.CreateBox('pedestal', { width: 2.8, height: 1, depth: 2.8 }, this.scene);
     pedestal.position.y = 0.5;
     pedestal.material = pedestalMat;

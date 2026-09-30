@@ -12,9 +12,11 @@ import {
 export type FlameTint = 'fire' | 'green' | 'arcane';
 
 const FLAME_COLORS: Record<FlameTint, [Color4, Color4, Color3]> = {
-  fire: [new Color4(1, 0.8, 0.35, 1), new Color4(1, 0.42, 0.08, 1), new Color3(1, 0.62, 0.3)],
-  green: [new Color4(0.6, 1, 0.55, 1), new Color4(0.15, 0.85, 0.35, 1), new Color3(0.4, 1, 0.55)],
-  arcane: [new Color4(0.75, 0.6, 1, 1), new Color4(0.35, 0.45, 1, 1), new Color3(0.55, 0.55, 1)],
+  // [flame core, flame edge, light colour]; lights are softer than the flames so
+  // they form warm pools instead of tinting whole rooms.
+  fire: [new Color4(1, 0.8, 0.35, 1), new Color4(1, 0.42, 0.08, 1), new Color3(1, 0.74, 0.48)],
+  green: [new Color4(0.6, 1, 0.55, 1), new Color4(0.15, 0.85, 0.35, 1), new Color3(0.6, 0.95, 0.66)],
+  arcane: [new Color4(0.75, 0.6, 1, 1), new Color4(0.35, 0.45, 1, 1), new Color3(0.66, 0.68, 1)],
 };
 
 /** Procedural particle effects and flickering lights (no texture files needed). */
