@@ -23,7 +23,6 @@ export const DUNGEON_MODELS = [
   'floor_tile_big_grate',
   'floor_dirt_large',
   'floor_wood_large',
-  'floor_wood_large_dark',
   'wall',
   'wall_cracked',
   'wall_arched',

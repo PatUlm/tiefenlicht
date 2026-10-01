@@ -10,10 +10,10 @@ import {
   type Mesh,
   type Scene,
 } from '@babylonjs/core';
-import type { CharacterId, Direction, HeroKind, MonsterKind, Position } from '@dungeon/shared';
+import type { CharacterId, Direction, HeroKind, MonsterKind, Position, StairsStyle } from '@dungeon/shared';
 import type { AssetLibrary, CharacterInstance, CharacterModel, WeaponModel } from './assets.ts';
 import type { Effects } from './effects.ts';
-import { CELL, angleDelta, facingAngle, tileCenter, yawTowards } from './grid.ts';
+import { CELL, LADDER_RUN, angleDelta, facingAngle, tileCenter, yawTowards } from './grid.ts';
 import { ease, tween } from './tween.ts';
 import type { World } from './world.ts';
 
@@ -90,6 +90,11 @@ const STYLES: Record<HeroKind | MonsterKind, CharacterStyle> = {
 };
 
 const STEP_MS = 330;
+const CLIMB_MS = 1100;
+/** Pose while on a ladder (all KayKit figures have it): knees bent, arms up. */
+const CLIMB_POSE = 'Jump_Idle';
+/** How far in front of the rim of the landing a climbing figure stands (its feet on the rungs). */
+const LADDER_STAND = 0.45;
 const BASE_HEIGHT = 0.18;
 
 export interface CharacterSpec {
@@ -109,6 +114,8 @@ export class CharacterView {
   private readonly model: CharacterInstance;
   private readonly style: CharacterStyle;
   private readonly ring: Mesh;
+  /** Base and active ring; hidden while the figure is on a ladder. */
+  private readonly plinth: TransformNode;
   private current: AnimationGroup | undefined;
   private ringTime = 0;
   tile: Position;
@@ -131,6 +138,8 @@ export class CharacterView {
     this.root.rotation.y = facingAngle(spec.facing);
 
     // Miniature base.
+    this.plinth = new TransformNode(`plinth:${spec.id}`, scene);
+    this.plinth.parent = this.root;
     const base = MeshBuilder.CreateCylinder(`base:${spec.id}`, { diameter: 2.9, height: BASE_HEIGHT, tessellation: 40 }, scene);
     const baseMat = new StandardMaterial(`base:${spec.id}`, scene);
     baseMat.diffuseColor = this.style.baseColor;
@@ -138,7 +147,7 @@ export class CharacterView {
     baseMat.specularColor = new Color3(0.3, 0.3, 0.3);
     base.material = baseMat;
     base.position.y = BASE_HEIGHT / 2 + 0.05;
-    base.parent = this.root;
+    base.parent = this.plinth;
     base.isPickable = false;
     base.receiveShadows = true;
 
@@ -148,7 +157,7 @@ export class CharacterView {
     ringMat.diffuseColor = Color3.Black();
     ringMat.disableLighting = true;
     this.ring.material = ringMat;
-    this.ring.parent = this.root;
+    this.ring.parent = this.plinth;
     this.ring.position.y = 0.2;
     this.ring.isPickable = false;
     this.ring.setEnabled(false);
@@ -240,32 +249,78 @@ export class CharacterView {
     });
   }
 
-  async walk(path: readonly Position[]): Promise<void> {
+  /** `styleBetween` tells how a step between two levels is taken: a flight is walked, a ladder climbed. */
+  async walk(path: readonly Position[], styleBetween: (from: Position, to: Position) => StairsStyle = () => 'stone'): Promise<void> {
     if (path.length === 0) return;
     this.moving = true;
-    this.play(this.style.walk ?? this.style.idle, true, 1.35);
+    this.play(this.walkAnimation, true, 1.35);
     for (const p of path) {
       this.heading = p;
       const from = this.root.position.clone();
       const to = tileCenter(p);
-      const startYaw = this.root.rotation.y;
-      const delta = angleDelta(startYaw, yawTowards(from, to));
-      // A flight of stairs: level to its foot, up (or down) the steps, level onto the landing.
-      const points = p.level === this.tile.level ? [from, to] : stairsRoute(from, to);
-      await tween(
-        this.world.scene,
-        STEP_MS * (points.length - 1),
-        (t) => {
-          this.root.position = alongPolyline(points, t);
-          this.root.rotation.y = startYaw + delta * Math.min(1, t * 3);
-        },
-        ease.linear,
-      );
+      if (p.level !== this.tile.level && styleBetween(this.tile, p) === 'ladder') {
+        await this.climbLadder(from, to);
+      } else {
+        const startYaw = this.root.rotation.y;
+        const delta = angleDelta(startYaw, yawTowards(from, to));
+        // A flight of stairs: level to its foot, up (or down) the steps, level onto the landing.
+        const points = p.level === this.tile.level ? [from, to] : stairsRoute(from, to);
+        await tween(
+          this.world.scene,
+          STEP_MS * (points.length - 1),
+          (t) => {
+            this.root.position = alongPolyline(points, t);
+            this.root.rotation.y = startYaw + delta * Math.min(1, t * 3);
+          },
+          ease.linear,
+        );
+      }
       this.tile = p;
       this.heading = undefined;
     }
     this.moving = false;
     this.play(this.style.idle, true);
+  }
+
+  private get walkAnimation(): string {
+    return this.style.walk ?? this.style.idle;
+  }
+
+  /**
+   * Walks to the ladder, climbs it facing the rungs (also on the way down) and walks
+   * off at the other end. The ladder leans against the rim of the landing (see
+   * DungeonView.buildLadder), so the climb runs parallel to it.
+   */
+  private async climbLadder(from: Vector3, to: Vector3): Promise<void> {
+    const up = to.y > from.y;
+    const [lower, upper] = up ? [from, to] : [to, from];
+    const toward = new Vector3(upper.x - lower.x, 0, upper.z - lower.z).normalize();
+    const top = upper.subtract(toward.scale(CELL / 2 + LADDER_STAND));
+    const foot = new Vector3(top.x - toward.x * LADDER_RUN, lower.y, top.z - toward.z * LADDER_RUN);
+    const [mount, dismount] = up ? [foot, top] : [top, foot];
+    await this.stride(from, mount);
+    // On the rungs the wide base would hang in the air and cut into the floor above.
+    this.plinth.setEnabled(false);
+    this.play(CLIMB_POSE, true);
+    await this.stride(mount, dismount, CLIMB_MS, Math.atan2(toward.x, toward.z));
+    this.play(this.walkAnimation, true, 1.35);
+    this.plinth.setEnabled(true);
+    await this.stride(dismount, to);
+  }
+
+  /** Straight move, turning towards `yaw` (default: the direction of travel) early on. */
+  private stride(from: Vector3, to: Vector3, ms = (STEP_MS * Vector3.Distance(from, to)) / CELL, yaw = yawTowards(from, to)): Promise<void> {
+    const startYaw = this.root.rotation.y;
+    const delta = angleDelta(startYaw, yaw);
+    return tween(
+      this.world.scene,
+      ms,
+      (t) => {
+        this.root.position = Vector3.Lerp(from, to, t);
+        this.root.rotation.y = startYaw + delta * Math.min(1, t * 3);
+      },
+      ease.linear,
+    );
   }
 
   async turnTo(facing: Direction): Promise<void> {

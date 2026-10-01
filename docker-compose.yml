@@ -1,7 +1,7 @@
 services:
   game:
     build: .
-    image: tiefenlicht:0.1
+    image: tiefenlicht:0.2
     ports:
       - "${PORT:-8080}:8080"
     restart: unless-stopped

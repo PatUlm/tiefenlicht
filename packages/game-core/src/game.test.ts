@@ -347,8 +347,8 @@ describe('visibility (M6)', () => {
     expect(createView(startedGame()).stairs).toEqual([]);
     const view = createView(playOpening(4));
     expect(view.stairs).toEqual([
-      { id: 'stairs-1', name: 'Turmtreppe', bottom: { x: 18, y: 16, level: 0 }, direction: 'N', top: { x: 18, y: 14, level: 1 }, explored: false },
-      { id: 'stairs-2', name: 'Gruftstiege', bottom: { x: 8, y: 19, level: -1 }, direction: 'N', top: { x: 8, y: 17, level: 0 }, explored: false },
+      { id: 'stairs-1', name: 'Turmtreppe', bottom: { x: 18, y: 16, level: 0 }, direction: 'N', style: 'stone', top: { x: 18, y: 14, level: 1 }, explored: false },
+      { id: 'stairs-2', name: 'Gruftstiege', bottom: { x: 8, y: 19, level: -1 }, direction: 'N', style: 'ladder', top: { x: 8, y: 17, level: 0 }, explored: false },
     ]);
     expect(view.areas.every((a) => a.level === 0)).toBe(true);
     const serialized = JSON.stringify(view);

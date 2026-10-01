@@ -6,8 +6,13 @@ export { OPPOSITE } from '@dungeon/shared';
 /** World units per grid tile (KayKit dungeon modules are 4×4). */
 export const CELL = 4;
 export const WALL_HEIGHT = 4;
-/** Storeys are stacked one wall height apart, so a flight rises 45° over one tile. */
-export const LEVEL_HEIGHT = WALL_HEIGHT;
+/**
+ * Storeys are stacked higher than a wall, so the tallest figures (≈4.5 with hat)
+ * stay below the floor of the storey above. A one-tile flight rises at ≈56°.
+ */
+export const LEVEL_HEIGHT = 6;
+/** A ladder leans at 75° against the rim of the landing; its foot stands this far from the rim. */
+export const LADDER_RUN = LEVEL_HEIGHT / Math.tan((75 * Math.PI) / 180);
 
 /** World height of the floor of a level. */
 export function levelY(level: number): number {

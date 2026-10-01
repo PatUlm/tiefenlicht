@@ -4,9 +4,11 @@ import {
   DynamicTexture,
   Mesh,
   MeshBuilder,
+  Quaternion,
   StandardMaterial,
   TransformNode,
   Vector3,
+  VertexBuffer,
   VertexData,
   type AbstractMesh,
   type ParticleSystem,
@@ -32,7 +34,8 @@ import {
 } from '@dungeon/shared';
 import { MAX_LIGHTS, MAX_POINT_LIGHTS, type AssetLibrary, type DungeonModel } from './assets.ts';
 import { disposeParticles, type Effects } from './effects.ts';
-import { CELL, LEVEL_HEIGHT, OPPOSITE, facingAngle, levelY, tileCenter, tileNoise } from './grid.ts';
+import { CELL, LADDER_RUN, LEVEL_HEIGHT, OPPOSITE, facingAngle, levelY, tileCenter, tileNoise } from './grid.ts';
+import { ParquetFloor } from './parquet.ts';
 import { PropFactory, type PropVisual } from './props.ts';
 import { ease, tween, wait } from './tween.ts';
 import type { World } from './world.ts';
@@ -43,11 +46,8 @@ interface ThemeStyle {
   readonly walls: readonly [DungeonModel, number][];
   /** How many torches of this area get a real point light (GPU light budget). */
   readonly torchLights: number;
-  /**
-   * Wooden floors laid as parquet instead of random tiles: a dark frieze along the
-   * walls (planks parallel to the wall) around a chequer of light panels.
-   */
-  readonly parquet?: { readonly field: DungeonModel; readonly frieze: DungeonModel };
+  /** Wooden floors laid as herringbone parquet with a frieze instead of random tiles (see parquet.ts). */
+  readonly parquet?: boolean;
 }
 
 const THEMES: Record<ThemeId, ThemeStyle> = {
@@ -96,18 +96,20 @@ const THEMES: Record<ThemeId, ThemeStyle> = {
       ['wall_arched', 0.3],
     ],
     torchLights: 1,
-    parquet: { field: 'floor_wood_large', frieze: 'floor_wood_large_dark' },
+    parquet: true,
   },
 };
-
-/** Yaw that lays the planks of the KayKit wood floor along the x axis (east–west); +90° lays them north–south. */
-const PLANKS_ALONG_X = 0;
 
 const LOW_WALL = 0.2;
 /** Height of the rail around a stairwell (fraction of a wall). */
 const PARAPET = 0.3;
 const STAGGER_MS = 55;
-const STAIR_STEPS = 8;
+const STAIR_STEPS = 12;
+/** Wooden ladder (outer width, rail section, rung spacing, rails reaching above the upper floor). */
+const LADDER_WIDTH = 2;
+const LADDER_RAIL = { width: 0.18, depth: 0.22 } as const;
+const LADDER_RUNG_SPACING = 0.44;
+const LADDER_GRIP = 0.8;
 const STAIRS_EMISSIVE = new Color3(0.07, 0.07, 0.08);
 /** The veil over lower levels sits just below the floor tiles of the focus level. */
 const VEIL_DEPTH = 0.12;
@@ -121,18 +123,6 @@ function pick(options: readonly [DungeonModel, number][], r: number): DungeonMod
     if (r < acc) return model;
   }
   return options[options.length - 1]![0];
-}
-
-/** Floor model and yaw of a tile: random variation, or the parquet layout for wooden themes. */
-function floorTile(t: Position, style: ThemeStyle, inArea: ReadonlySet<string>): { model: DungeonModel; yaw: number } {
-  if (!style.parquet) {
-    return { model: pick(style.floors, tileNoise(t.x, t.y, 1)), yaw: Math.floor(tileNoise(t.x, t.y, 2) * 4) * (Math.PI / 2) };
-  }
-  const outside = (dir: Direction) => !inArea.has(posKey(step(t, dir)));
-  const alongZ = PLANKS_ALONG_X + Math.PI / 2;
-  if (outside('N') || outside('S')) return { model: style.parquet.frieze, yaw: PLANKS_ALONG_X };
-  if (outside('E') || outside('W')) return { model: style.parquet.frieze, yaw: alongZ };
-  return { model: style.parquet.field, yaw: (t.x + t.y) % 2 === 0 ? PLANKS_ALONG_X : alongZ };
 }
 
 /** Starts or stops a particle system without restarting a running one. */
@@ -217,8 +207,10 @@ export class DungeonView {
   private readonly knownTiles = new Map<string, string>();
   private readonly levelNodes = new Map<number, TransformNode>();
   private readonly props: PropFactory;
+  private readonly parquet: ParquetFloor;
   private readonly foundation: Mesh;
   private readonly stairsMaterial: StandardMaterial;
+  private readonly ladderMaterial: StandardMaterial;
   private stairsMarkerMaterial: StandardMaterial | undefined;
   private readonly veil: Mesh;
   private veilKey = '';
@@ -236,6 +228,7 @@ export class DungeonView {
     private readonly effects: Effects,
   ) {
     this.props = new PropFactory(world.scene, assets, effects);
+    this.parquet = new ParquetFloor(world.scene);
     this.foundation = MeshBuilder.CreateBox('foundation', { width: CELL, height: 2.6, depth: CELL }, world.scene);
     const mat = new StandardMaterial('foundation', world.scene);
     // Dark neutral stone slab under the board (shows through floor grates).
@@ -253,6 +246,12 @@ export class DungeonView {
     this.stairsMaterial.specularColor = new Color3(0.08, 0.08, 0.08);
     this.stairsMaterial.maxSimultaneousLights = MAX_LIGHTS;
     this.stairsMaterial.emissiveColor = STAIRS_EMISSIVE.clone();
+    // Ladders are painted per part (vertex colours: wood, dark wood, iron).
+    this.ladderMaterial = new StandardMaterial('ladder', world.scene);
+    this.ladderMaterial.diffuseColor = Color3.White();
+    this.ladderMaterial.specularColor = new Color3(0.05, 0.05, 0.05);
+    this.ladderMaterial.maxSimultaneousLights = MAX_LIGHTS;
+    this.ladderMaterial.emissiveColor = STAIRS_EMISSIVE.clone();
 
     this.veil = new Mesh('level-veil', world.scene);
     const veilMat = new StandardMaterial('level-veil', world.scene);
@@ -267,7 +266,7 @@ export class DungeonView {
     this.veil.setEnabled(false);
     world.glow.addExcludedMesh(this.veil);
 
-    for (const model of ['floor_tile_large', 'floor_tile_big_grate', 'floor_tile_large_rocks', 'floor_dirt_large', 'floor_wood_large', 'floor_wood_large_dark', 'wall', 'wall_arched', 'wall_cracked', 'wall_broken'] as const) {
+    for (const model of ['floor_tile_large', 'floor_tile_big_grate', 'floor_tile_large_rocks', 'floor_dirt_large', 'floor_wood_large', 'wall', 'wall_arched', 'wall_cracked', 'wall_broken'] as const) {
       assets.sourceMesh(model).receiveShadows = true;
     }
 
@@ -329,14 +328,22 @@ export class DungeonView {
     this.areas.set(area.id, visual);
     this.fitVeil(view);
 
-    // Floors and foundation blocks.
+    // Floors (parquet with its frieze along the walls, or random tiles) and foundation blocks.
+    const board = new Board(view);
     const inArea = new Set(area.tiles.map(posKey));
+    const isWall = (p: Position, dir: Direction) => board.isWall(p, step(p, dir));
     for (const t of area.tiles) {
-      const { model, yaw } = floorTile(t, style, inArea);
-      const floor = this.assets.instance(model);
+      let floor: AbstractMesh;
+      if (style.parquet) {
+        floor = this.parquet.tile(`parquet-${posKey(t)}`);
+        const frieze = this.parquet.frieze(t, isWall, inArea);
+        if (frieze) frieze.parent = floor;
+      } else {
+        floor = this.assets.instance(pick(style.floors, tileNoise(t.x, t.y, 1)));
+        floor.rotation.y = Math.floor(tileNoise(t.x, t.y, 2) * 4) * (Math.PI / 2);
+      }
       floor.parent = levelNode;
       floor.position = tileCenter(t);
-      floor.rotation.y = yaw;
       const base = this.foundation.createInstance(`foundation-${posKey(t)}`);
       base.parent = floor;
       base.position.y = -1.4;
@@ -346,7 +353,6 @@ export class DungeonView {
     // Walls on every edge the rules consider a wall (derived, never stored). Edges
     // towards a flight or the hole of its stairwell get a low rail instead, so stairs
     // stay visible from every side.
-    const board = new Board(view);
     const stairCells = new Set(
       view.stairs.flatMap((s) => {
         const shaft = stairsShaft(s);
@@ -765,10 +771,10 @@ export class DungeonView {
   }
 
   /**
-   * A straight flight of solid stone steps on the shaft tile, rising from the
-   * floor of the lower level to the floor of the upper one (45°, one tile long).
+   * The connection on the shaft tile, from the floor of the lower level to the floor
+   * of the upper one: a solid stone flight or a wooden ladder.
+   * `fromBelow`: the foot is the known end (the stairs lead up into the unknown).
    */
-  /** `fromBelow`: the foot is the known end (the stairs lead up into the unknown). */
   private createStairs(view: StairsView, fromBelow: boolean): StairsVisual {
     const scene = this.world.scene;
     const root = new TransformNode(`stairs:${view.id}`, scene);
@@ -776,18 +782,10 @@ export class DungeonView {
     root.position = tileCenter(stairsShaft(view));
     root.rotation.y = facingAngle(view.direction); // local +Z points up the flight
 
-    const tread = CELL / STAIR_STEPS;
-    const rise = LEVEL_HEIGHT / STAIR_STEPS;
-    const blocks: Mesh[] = [];
-    for (let i = 0; i < STAIR_STEPS; i++) {
-      const height = (i + 1) * rise;
-      const block = MeshBuilder.CreateBox(`stairs-step-${view.id}-${i}`, { width: CELL - 0.7, height, depth: tread }, scene);
-      block.position.set(0, height / 2, -CELL / 2 + tread * (i + 0.5));
-      blocks.push(block);
-    }
-    const flight = Mesh.MergeMeshes(blocks, true)!;
+    const ladder = view.style === 'ladder';
+    const flight = ladder ? this.buildLadder(view, root) : this.buildFlight(view);
     flight.name = `stairs-flight-${view.id}`;
-    const material = this.stairsMaterial.clone(`stairs-${view.id}`);
+    const material = (ladder ? this.ladderMaterial : this.stairsMaterial).clone(`stairs-${view.id}`);
     flight.material = material;
     flight.parent = root;
     flight.isPickable = false;
@@ -812,6 +810,74 @@ export class DungeonView {
     }
     const omenLevel = fromBelow ? view.bottom.level : view.top.level;
     return { view, root, material, pickMesh, omen, omenLevel, markers: new Map(), explored: view.explored, highlighted: false };
+  }
+
+  /** Solid stone steps filling the shaft tile (≈56°, one tile long). */
+  private buildFlight(view: StairsView): Mesh {
+    const tread = CELL / STAIR_STEPS;
+    const rise = LEVEL_HEIGHT / STAIR_STEPS;
+    const blocks: Mesh[] = [];
+    for (let i = 0; i < STAIR_STEPS; i++) {
+      const height = (i + 1) * rise;
+      const block = MeshBuilder.CreateBox(`stairs-step-${view.id}-${i}`, { width: CELL - 0.7, height, depth: tread }, this.world.scene);
+      block.position.set(0, height / 2, -CELL / 2 + tread * (i + 0.5));
+      blocks.push(block);
+    }
+    return Mesh.MergeMeshes(blocks, true)!;
+  }
+
+  /**
+   * A wooden ladder leaning against the rim of the landing at 75° (see LADDER_RUN), its rails
+   * reaching above the upper floor as grips. Unlike a flight it leaves the shaft tile
+   * open, so that tile gets a floor of its own on the lower level.
+   */
+  private buildLadder(view: StairsView, root: TransformNode): Mesh {
+    const scene = this.world.scene;
+    const floor = this.assets.instance('floor_tile_large');
+    floor.parent = root;
+    const base = this.foundation.createInstance(`foundation-ladder-${view.id}`);
+    base.parent = floor;
+    base.position.y = -1.4;
+
+    // Axis of the ladder (local +Z towards the landing), its back resting on the rim.
+    const axis = new Vector3(0, LEVEL_HEIGHT, LADDER_RUN).normalize();
+    const tilt = Quaternion.FromUnitVectorsToRef(Vector3.Up(), axis, new Quaternion());
+    const foot = new Vector3(0, 0, CELL / 2 - LADDER_RUN - LADDER_RAIL.depth / 2);
+    const at = (height: number) => foot.add(axis.scale(height / axis.y));
+    const paint = (mesh: Mesh, hex: string) => {
+      const c = Color3.FromHexString(hex);
+      const colors: number[] = [];
+      for (let i = 0; i < mesh.getTotalVertices(); i++) colors.push(c.r, c.g, c.b, 1);
+      mesh.setVerticesData(VertexBuffer.ColorKind, colors);
+      return mesh;
+    };
+
+    const parts: Mesh[] = [];
+    const railTop = LEVEL_HEIGHT + LADDER_GRIP;
+    const railX = LADDER_WIDTH / 2 - LADDER_RAIL.width / 2;
+    for (const side of [-1, 1]) {
+      const rail = MeshBuilder.CreateBox(
+        `ladder-rail-${view.id}`,
+        { width: LADDER_RAIL.width, height: railTop / axis.y, depth: LADDER_RAIL.depth },
+        scene,
+      );
+      rail.rotationQuaternion = tilt.clone();
+      rail.position = at(railTop / 2).add(new Vector3(side * railX, 0, 0));
+      parts.push(paint(rail, '#6d5440'));
+      // Iron strap holding the rail at the rim.
+      const strap = MeshBuilder.CreateBox(`ladder-strap-${view.id}`, { width: LADDER_RAIL.width + 0.08, height: 0.1, depth: LADDER_RAIL.depth + 0.08 }, scene);
+      strap.rotationQuaternion = tilt.clone();
+      strap.position = at(LEVEL_HEIGHT - 0.15).add(new Vector3(side * railX, 0, 0));
+      parts.push(paint(strap, '#34353a'));
+    }
+    const rungLength = LADDER_WIDTH - LADDER_RAIL.width;
+    for (let height = LADDER_RUNG_SPACING; height < LEVEL_HEIGHT - 0.2; height += LADDER_RUNG_SPACING) {
+      const rung = MeshBuilder.CreateCylinder(`ladder-rung-${view.id}`, { height: rungLength, diameter: 0.14, tessellation: 8 }, scene);
+      rung.rotation.z = Math.PI / 2;
+      rung.position = at(height);
+      parts.push(paint(rung, '#9c7452'));
+    }
+    return Mesh.MergeMeshes(parts, true)!;
   }
 
   /** Foot and landing get a floor marker pointing at the flight once their tile is known. */

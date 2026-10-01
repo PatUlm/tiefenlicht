@@ -178,10 +178,10 @@ Türen (neutrale IDs):
 
 Treppen (neutrale IDs; Lauf jeweils auf dem Feld zwischen Fuß und Austritt):
 
-| ID | Name | Fuß (untere Ebene) | Richtung | Lauf | Austritt (obere Ebene) |
-|---|---|---|---|---|---|
-| stairs-1 | Turmtreppe | (18,16,0) Magierstube | N | (18,15) | (18,14,1) Sternwarte |
-| stairs-2 | Gruftstiege | (8,19,−1) Gebeinkammer | N | (8,18) | (8,17,0) Krypta |
+| ID | Name | Fuß (untere Ebene) | Richtung | Lauf | Austritt (obere Ebene) | Stil |
+|---|---|---|---|---|---|---|
+| stairs-1 | Turmtreppe | (18,16,0) Magierstube | N | (18,15) | (18,14,1) Sternwarte | stone |
+| stairs-2 | Gruftstiege | (8,19,−1) Gebeinkammer | N | (8,18) | (8,17,0) Krypta | ladder |
 
 Startfelder: Zwerg (9,1), Dunkelelf (10,1), beide Ebene 0, Blick Süden.
 

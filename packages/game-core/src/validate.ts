@@ -7,6 +7,7 @@ import {
   MONSTER_KIND_VALUES,
   PLAYERS_PER_GAME,
   PROP_KIND_VALUES,
+  STAIRS_STYLE_VALUES,
   THEME_VALUES,
   VICTORY_TYPE_VALUES,
   WALL_DECOR_KIND_VALUES,
@@ -133,6 +134,7 @@ function checkShape(input: unknown): string[] {
     str(st.name, `${w}.name`);
     pos(st.bottom, `${w}.bottom`);
     oneOf(st.direction, DIRECTION_VALUES, `${w}.direction`);
+    oneOf(st.style, STAIRS_STYLE_VALUES, `${w}.style`);
   });
   list('props', (p, w) => {
     str(p.id, `${w}.id`);

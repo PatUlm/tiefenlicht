@@ -54,8 +54,8 @@ describe('validateDungeon', () => {
     const errors = validateDungeon(
       withChanges({
         stairs: [
-          { id: 'stairs-1', name: 'x', bottom: { x: 17, y: 16, level: 0 }, direction: 'N' },
-          { id: 'stairs-2', name: 'y', bottom: { x: 7, y: 2, level: 0 }, direction: 'N' },
+          { id: 'stairs-1', name: 'x', bottom: { x: 17, y: 16, level: 0 }, direction: 'N', style: 'stone' },
+          { id: 'stairs-2', name: 'y', bottom: { x: 7, y: 2, level: 0 }, direction: 'N', style: 'ladder' },
         ],
       }),
     );

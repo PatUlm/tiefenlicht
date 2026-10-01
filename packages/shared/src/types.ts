@@ -37,6 +37,10 @@ export type ThemeId = (typeof THEME_VALUES)[number];
 export const DOOR_STYLE_VALUES = ['grand', 'iron', 'arcane'] as const;
 export type DoorStyle = (typeof DOOR_STYLE_VALUES)[number];
 
+/** Look of the connection between two levels; it does not change the rules. */
+export const STAIRS_STYLE_VALUES = ['stone', 'ladder'] as const;
+export type StairsStyle = (typeof STAIRS_STYLE_VALUES)[number];
+
 export type HeroKind = 'dwarf' | 'darkelf';
 
 export const MONSTER_KIND_VALUES = ['skeletonWarrior', 'skeletonMinion', 'skeletonMage'] as const;
@@ -104,6 +108,7 @@ export interface StairsDefinition {
   readonly bottom: Position;
   /** Direction from `bottom` up the flight. */
   readonly direction: Direction;
+  readonly style: StairsStyle;
 }
 
 export interface PropDefinition {
@@ -194,6 +199,7 @@ export interface StairsView {
   readonly name: string;
   readonly bottom: Position;
   readonly direction: Direction;
+  readonly style: StairsStyle;
   /** Landing tile on the upper level (derived, see `stairsTop`). */
   readonly top: Position;
   /** Explored stairs are passable; exploring reveals the area at the far end. */

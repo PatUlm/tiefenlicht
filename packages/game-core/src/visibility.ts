@@ -82,6 +82,7 @@ export function createView(state: GameState): GameView {
         name: s.name,
         bottom: s.bottom,
         direction: s.direction,
+        style: s.style,
         top: stairsTop(s),
         explored: explored.has(s.id),
       })),

@@ -359,7 +359,9 @@ export class GameController {
         if (!character) break;
         const from = character.tile;
         this.follow = character;
-        await character.walk(event.path);
+        const styleBetween = (a: Position, b: Position) =>
+          view.stairs.find((s) => stairsEnds(s).every((end) => samePos(end, a) || samePos(end, b)))?.style ?? 'stone';
+        await character.walk(event.path, styleBetween);
         this.follow = null;
         // The last step may have changed the storey without a frame in between.
         world.setFocusLevel(character.tile.level);
