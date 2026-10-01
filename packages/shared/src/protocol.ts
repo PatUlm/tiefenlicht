@@ -1,5 +1,5 @@
-import type { AreaId, CharacterId, DoorId, GameView, PlayerId, Position } from './types.ts';
-import { MAX_CLIENT_MESSAGE_BYTES, MAX_PLAYER_NAME_LENGTH } from './constants.ts';
+import type { AreaId, CharacterId, DoorId, GameView, PlayerId, Position, StairsId } from './types.ts';
+import { MAX_CLIENT_MESSAGE_BYTES, MAX_COORDINATE, MAX_LEVEL, MAX_PLAYER_NAME_LENGTH } from './constants.ts';
 
 // ---------------------------------------------------------------------------
 // Game actions (requests a client may send; validated by the server)
@@ -17,6 +17,12 @@ export interface OpenDoorAction {
   readonly doorId: DoorId;
 }
 
+export interface ExploreStairsAction {
+  readonly type: 'EXPLORE_STAIRS';
+  readonly characterId: CharacterId;
+  readonly stairsId: StairsId;
+}
+
 export interface EndTurnAction {
   readonly type: 'END_TURN';
 }
@@ -25,7 +31,10 @@ export interface RestartGameAction {
   readonly type: 'RESTART_GAME';
 }
 
-export type GameAction = MoveCharacterAction | OpenDoorAction | EndTurnAction | RestartGameAction;
+export type GameAction = MoveCharacterAction | OpenDoorAction | ExploreStairsAction | EndTurnAction | RestartGameAction;
+
+/** What revealed an area: a door that was opened or stairs that were explored. */
+export type Passage = { readonly kind: 'door'; readonly id: DoorId } | { readonly kind: 'stairs'; readonly id: StairsId };
 
 // ---------------------------------------------------------------------------
 // Game events (facts produced by the server; the client animates them)
@@ -42,10 +51,11 @@ export type GameEvent =
       readonly path: readonly Position[];
     }
   | { readonly type: 'DOOR_OPENED'; readonly doorId: DoorId; readonly characterId: CharacterId }
+  | { readonly type: 'STAIRS_EXPLORED'; readonly stairsId: StairsId; readonly characterId: CharacterId }
   | {
       readonly type: 'AREA_REVEALED';
       readonly areaId: AreaId;
-      readonly viaDoorId: DoorId;
+      readonly via: Passage;
       readonly monsterIds: readonly CharacterId[];
     }
   | { readonly type: 'TURN_STARTED'; readonly playerId: PlayerId; readonly round: number }
@@ -64,6 +74,9 @@ export type RejectionCode =
   | 'NOT_ENOUGH_MOVEMENT'
   | 'DOOR_ALREADY_OPEN'
   | 'DOOR_NOT_ADJACENT'
+  | 'UNKNOWN_STAIRS'
+  | 'STAIRS_ALREADY_EXPLORED'
+  | 'STAIRS_NOT_ADJACENT'
   | 'NO_ACTION_LEFT';
 
 // ---------------------------------------------------------------------------
@@ -129,7 +142,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isId(value: unknown): value is string {
+/** IDs clients may send (also required of authored door and stairs IDs, see validateDungeon). */
+export function isId(value: unknown): value is string {
   return typeof value === 'string' && ID_PATTERN.test(value);
 }
 
@@ -138,8 +152,10 @@ function isPosition(value: unknown): value is Position {
     isRecord(value) &&
     Number.isInteger(value.x) &&
     Number.isInteger(value.y) &&
-    Math.abs(value.x as number) < 10_000 &&
-    Math.abs(value.y as number) < 10_000
+    Number.isInteger(value.level) &&
+    Math.abs(value.x as number) < MAX_COORDINATE &&
+    Math.abs(value.y as number) < MAX_COORDINATE &&
+    Math.abs(value.level as number) <= MAX_LEVEL
   );
 }
 
@@ -197,11 +213,14 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return withRequest({
         type: 'MOVE_CHARACTER',
         characterId: data.characterId,
-        target: { x: data.target.x, y: data.target.y },
+        target: { x: data.target.x, y: data.target.y, level: data.target.level },
       });
     case 'OPEN_DOOR':
       if (!isId(data.characterId) || !isId(data.doorId)) return null;
       return withRequest({ type: 'OPEN_DOOR', characterId: data.characterId, doorId: data.doorId });
+    case 'EXPLORE_STAIRS':
+      if (!isId(data.characterId) || !isId(data.stairsId)) return null;
+      return withRequest({ type: 'EXPLORE_STAIRS', characterId: data.characterId, stairsId: data.stairsId });
     case 'END_TURN':
       return withRequest({ type: 'END_TURN' });
     case 'RESTART_GAME':

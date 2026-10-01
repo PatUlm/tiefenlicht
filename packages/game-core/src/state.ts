@@ -9,6 +9,7 @@ import type {
   MonsterDefinition,
   PlayerId,
   Position,
+  StairsId,
   TurnView,
 } from '@dungeon/shared';
 
@@ -35,13 +36,18 @@ export type MonsterState = MonsterDefinition;
 export interface GameState {
   readonly gameId: string;
   readonly version: number;
+  /** Number of restarts so far (M7); clients use it to drop per-game presentation state. */
+  readonly restarts: number;
   readonly phase: GamePhase;
   readonly dungeon: DungeonDefinition;
   readonly players: readonly PlayerState[];
   readonly heroes: readonly HeroState[];
   readonly monsters: readonly MonsterState[];
   readonly openDoors: readonly DoorId[];
+  readonly exploredStairs: readonly StairsId[];
   readonly revealedAreas: readonly AreaId[];
+  /** Areas a hero has entered at least once; the start areas count from the beginning. */
+  readonly visitedAreas: readonly AreaId[];
   readonly turn: TurnView | null;
   /** Set once the victory condition has been met; the game keeps running (M7). */
   readonly objectiveCompleted: boolean;

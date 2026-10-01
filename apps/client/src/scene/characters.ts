@@ -13,7 +13,7 @@ import {
 import type { CharacterId, Direction, HeroKind, MonsterKind, Position } from '@dungeon/shared';
 import type { AssetLibrary, CharacterInstance, CharacterModel, WeaponModel } from './assets.ts';
 import type { Effects } from './effects.ts';
-import { angleDelta, facingAngle, tileCenter, yawTowards } from './grid.ts';
+import { CELL, angleDelta, facingAngle, tileCenter, yawTowards } from './grid.ts';
 import { ease, tween } from './tween.ts';
 import type { World } from './world.ts';
 
@@ -112,6 +112,8 @@ export class CharacterView {
   private current: AnimationGroup | undefined;
   private ringTime = 0;
   tile: Position;
+  /** Tile the figure is currently walking onto (equals `tile` when standing). */
+  private heading: Position | undefined;
   moving = false;
 
   constructor(
@@ -192,6 +194,11 @@ export class CharacterView {
     scene.onBeforeRenderObservable.add(this.onFrame);
   }
 
+  /** Storey the camera should show for this figure: while taking stairs, the upper one. */
+  get viewLevel(): number {
+    return Math.max(this.tile.level, this.heading?.level ?? this.tile.level);
+  }
+
   get heightForLabel(): number {
     return this.style.labelHeight;
   }
@@ -238,20 +245,24 @@ export class CharacterView {
     this.moving = true;
     this.play(this.style.walk ?? this.style.idle, true, 1.35);
     for (const p of path) {
+      this.heading = p;
       const from = this.root.position.clone();
       const to = tileCenter(p);
       const startYaw = this.root.rotation.y;
       const delta = angleDelta(startYaw, yawTowards(from, to));
+      // A flight of stairs: level to its foot, up (or down) the steps, level onto the landing.
+      const points = p.level === this.tile.level ? [from, to] : stairsRoute(from, to);
       await tween(
         this.world.scene,
-        STEP_MS,
+        STEP_MS * (points.length - 1),
         (t) => {
-          this.root.position = Vector3.Lerp(from, to, t);
+          this.root.position = alongPolyline(points, t);
           this.root.rotation.y = startYaw + delta * Math.min(1, t * 3);
         },
         ease.linear,
       );
       this.tile = p;
+      this.heading = undefined;
     }
     this.moving = false;
     this.play(this.style.idle, true);
@@ -293,6 +304,10 @@ export class CharacterView {
 
   private readonly onFrame = () => {
     const scene = this.world.scene;
+    // Figures above the focus level are hidden with their storey; only the focus level is labelled.
+    const level = this.tile.level;
+    const focus = this.world.focusLevel;
+    if (this.root.isEnabled(false) !== level <= focus) this.root.setEnabled(level <= focus);
     if (this.ring.isEnabled()) {
       this.ringTime += scene.getEngine().getDeltaTime() / 1000;
       const s = 1 + Math.sin(this.ringTime * 4) * 0.06;
@@ -309,8 +324,21 @@ export class CharacterView {
       camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight()),
     );
     const scale = engine.getHardwareScalingLevel();
-    const visible = projected.z > 0 && projected.z < 1;
+    const visible = level === focus && projected.z > 0 && projected.z < 1;
     this.label.style.display = visible ? '' : 'none';
     this.label.style.transform = `translate(${projected.x * scale}px, ${projected.y * scale}px) translate(-50%, -100%)`;
   };
+}
+
+/** Waypoints between the foot and the landing of a flight (one tile apart from both). */
+function stairsRoute(from: Vector3, to: Vector3): Vector3[] {
+  const along = new Vector3(to.x - from.x, 0, to.z - from.z).normalize().scale(CELL / 2);
+  return [from, new Vector3(from.x + along.x, from.y, from.z + along.z), new Vector3(to.x - along.x, to.y, to.z - along.z), to];
+}
+
+/** Point at fraction t of a polyline, with equal time per segment. */
+function alongPolyline(points: readonly Vector3[], t: number): Vector3 {
+  const segments = points.length - 1;
+  const i = Math.min(segments - 1, Math.floor(t * segments));
+  return Vector3.Lerp(points[i]!, points[i + 1]!, t * segments - i);
 }

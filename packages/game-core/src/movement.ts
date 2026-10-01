@@ -12,9 +12,10 @@ export interface ReachableTile {
 /**
  * Breadth-first search over the board from `from`, limited to `maxSteps`.
  * Rules (docs/game-mechanics.md M4):
- *  - orthogonal steps only, 1 point each
+ *  - orthogonal steps only, 1 point each; explored stairs lead from their foot
+ *    straight to their landing on the next level, also 1 point
  *  - tile must exist (be revealed), not hold a blocking prop or a monster
- *  - edge must not be a wall or a closed door
+ *  - edge must not be a wall, a closed door or unexplored stairs
  *  - allied heroes may be passed through, but not ended on
  * Neighbour order N, E, S, W makes the chosen path deterministic.
  *
@@ -35,7 +36,7 @@ export function computeReachable(
   for (let cost = 1; cost <= maxSteps && frontier.length > 0; cost++) {
     const next: { pos: Position; path: Position[] }[] = [];
     for (const node of frontier) {
-      for (const { pos } of board.neighbours(node.pos)) {
+      for (const pos of board.neighbours(node.pos)) {
         const key = posKey(pos);
         if (visited.has(key)) continue;
         if (!board.isEdgePassable(node.pos, pos)) continue;

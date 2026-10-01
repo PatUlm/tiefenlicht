@@ -1,6 +1,7 @@
 import {
   Color3,
   DynamicTexture,
+  Vector3,
   type GlowLayer,
   MeshBuilder,
   StandardMaterial,
@@ -9,24 +10,27 @@ import {
   type Scene,
 } from '@babylonjs/core';
 import { posKey, type Position } from '@dungeon/shared';
-import { tileCenter } from './grid.ts';
+import { LEVEL_HEIGHT, tileCenter } from './grid.ts';
 
 const TILE_SIZE = 3.6;
 
 /**
  * Board-game style overlays on the floor: reachable tiles, the hovered target,
  * the path preview and an optional grid. All flat, unlit, glowing planes.
+ * The grid is drawn on the focus level only; path dots never float above it.
  */
 export class BoardOverlay {
   private readonly reachSource: Mesh;
   private readonly gridSource: Mesh;
   private readonly dotSource: Mesh;
+  private readonly climbSource: Mesh;
   private readonly hover: Mesh;
   private readonly reachMarkers: InstancedMesh[] = [];
   private readonly dots: InstancedMesh[] = [];
-  private readonly gridMarkers = new Map<string, InstancedMesh>();
+  private readonly gridMarkers = new Map<string, { mesh: InstancedMesh; level: number }>();
   private readonly hoverMat: StandardMaterial;
   private gridVisible = true;
+  private focusLevel = 0;
   private time = 0;
 
   constructor(
@@ -45,12 +49,19 @@ export class BoardOverlay {
     this.dotSource.material = this.material('dot', null, new Color3(1, 0.85, 0.4), 1);
     this.dotSource.isVisible = false;
     this.dotSource.isPickable = false;
+    // A path changing storeys gets a gold diamond above the middle of the flight.
+    this.climbSource = MeshBuilder.CreatePolyhedron('path-climb', { type: 1, size: 0.42 }, scene);
+    this.climbSource.scaling.y = 1.5;
+    this.climbSource.bakeCurrentTransformIntoVertices();
+    this.climbSource.material = this.material('climb', null, new Color3(1, 0.82, 0.35), 1);
+    this.climbSource.isVisible = false;
+    this.climbSource.isPickable = false;
 
     this.hoverMat = this.material('hover', hoverTex, new Color3(1, 0.9, 0.5), 0.95);
     this.hover = this.plane('hover', TILE_SIZE + 0.2, this.hoverMat);
     this.hover.isVisible = false;
     // Overlays must stay crisp: keep them out of the glow layer.
-    for (const m of [this.reachSource, this.gridSource, this.dotSource, this.hover]) glow.addExcludedMesh(m);
+    for (const m of [this.reachSource, this.gridSource, this.dotSource, this.climbSource, this.hover]) glow.addExcludedMesh(m);
 
     scene.onBeforeRenderObservable.add(() => {
       this.time += scene.getEngine().getDeltaTime() / 1000;
@@ -80,10 +91,18 @@ export class BoardOverlay {
     this.hoverMat.emissiveColor = valid ? new Color3(1, 0.88, 0.45) : new Color3(1, 0.3, 0.38);
   }
 
-  setPath(path: readonly Position[]): void {
+  /** Dots along the path; `from` (the start tile) lets a flight on the first step be marked too. */
+  setPath(path: readonly Position[], from?: Position): void {
     for (const d of this.dots.splice(0)) d.dispose();
     path.forEach((p, i) => {
-      if (i === path.length - 1) return;
+      const prev = i === 0 ? from : path[i - 1];
+      if (prev && prev.level !== p.level && Math.min(prev.level, p.level) <= this.focusLevel) {
+        const climb = this.climbSource.createInstance(`climb-${i}`);
+        climb.position = Vector3.Center(tileCenter(prev), tileCenter(p)).addInPlaceFromFloats(0, LEVEL_HEIGHT / 4, 0);
+        climb.isPickable = false;
+        this.dots.push(climb);
+      }
+      if (i === path.length - 1 || p.level > this.focusLevel) return;
       const d = this.dotSource.createInstance(`dot-${i}`);
       d.position = tileCenter(p, 0.16);
       d.isPickable = false;
@@ -98,21 +117,30 @@ export class BoardOverlay {
       const m = this.gridSource.createInstance(`grid-${key}`);
       m.position = tileCenter(t, 0.07);
       m.isPickable = false;
-      m.isVisible = this.gridVisible;
-      this.gridMarkers.set(key, m);
+      this.gridMarkers.set(key, { mesh: m, level: t.level });
     }
+    this.updateGrid();
   }
 
   toggleGrid(): void {
     this.gridVisible = !this.gridVisible;
-    for (const m of this.gridMarkers.values()) m.isVisible = this.gridVisible;
+    this.updateGrid();
+  }
+
+  setFocusLevel(level: number): void {
+    this.focusLevel = level;
+    this.updateGrid();
+  }
+
+  private updateGrid(): void {
+    for (const { mesh, level } of this.gridMarkers.values()) mesh.isVisible = this.gridVisible && level === this.focusLevel;
   }
 
   clear(): void {
     this.setReachable([]);
     this.setPath([]);
     this.setHover(null, false);
-    for (const m of this.gridMarkers.values()) m.dispose();
+    for (const { mesh } of this.gridMarkers.values()) mesh.dispose();
     this.gridMarkers.clear();
   }
 

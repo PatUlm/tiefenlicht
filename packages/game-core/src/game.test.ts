@@ -1,23 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import { posKey, type Position } from '@dungeon/shared';
 import { PROTOTYPE_DUNGEON } from './content/index.ts';
-import { addPlayer, applyAction, canStillAct, createGame, openableDoors, setPlayerConnected } from './game.ts';
+import { addPlayer, applyAction, canStillAct, createGame, explorableStairs, openableDoors, setPlayerConnected } from './game.ts';
 import type { GameState } from './state.ts';
 import { act, P1, P2, startedGame } from './test-helpers.ts';
 import { createView } from './visibility.ts';
 
 const move = (characterId: string, target: Position) => ({ type: 'MOVE_CHARACTER', characterId, target }) as const;
 const open = (characterId: string, doorId: string) => ({ type: 'OPEN_DOOR', characterId, doorId }) as const;
+const explore = (characterId: string, stairsId: string) => ({ type: 'EXPLORE_STAIRS', characterId, stairsId }) as const;
 const END = { type: 'END_TURN' } as const;
 
 /** Plays the expected opening from docs/game-mechanics.md M8 up to the given turn. */
 function playOpening(turns: number, from: GameState = startedGame()): GameState {
   let s = from;
   const steps: [string, (s: GameState) => GameState][] = [
-    [P1, (g) => act(act(act(g, P1, move('hero-1', { x: 9, y: 6 })).state, P1, open('hero-1', 'door-1')).state, P1, move('hero-1', { x: 9, y: 9 })).state],
-    [P2, (g) => act(g, P2, move('hero-2', { x: 10, y: 9 })).state],
-    [P1, (g) => act(act(g, P1, move('hero-1', { x: 4, y: 12 })).state, P1, open('hero-1', 'door-2')).state],
-    [P2, (g) => act(act(g, P2, move('hero-2', { x: 15, y: 12 })).state, P2, open('hero-2', 'door-3')).state],
+    [P1, (g) => act(act(act(g, P1, move('hero-1', { x: 9, y: 6, level: 0 })).state, P1, open('hero-1', 'door-1')).state, P1, move('hero-1', { x: 9, y: 9, level: 0 })).state],
+    [P2, (g) => act(g, P2, move('hero-2', { x: 10, y: 9, level: 0 })).state],
+    [P1, (g) => act(act(g, P1, move('hero-1', { x: 4, y: 12, level: 0 })).state, P1, open('hero-1', 'door-2')).state],
+    [P2, (g) => act(act(g, P2, move('hero-2', { x: 15, y: 12, level: 0 })).state, P2, open('hero-2', 'door-3')).state],
+    [P1, (g) => act(g, P1, move('hero-1', { x: 7, y: 14, level: 0 })).state],
+    // Exploring stairs with a movement point left takes the hero along to the other level.
+    [P2, (g) => act(act(g, P2, move('hero-2', { x: 18, y: 16, level: 0 })).state, P2, explore('hero-2', 'stairs-1')).state],
+    [P1, (g) => act(act(g, P1, move('hero-1', { x: 8, y: 17, level: 0 })).state, P1, explore('hero-1', 'stairs-2')).state],
   ];
   for (const [player, turn] of steps.slice(0, turns)) {
     s = turn(s);
@@ -45,7 +50,7 @@ describe('game setup', () => {
   it('rejects every action, including a restart, before the game started', () => {
     const joined = addPlayer(createGame('G', PROTOTYPE_DUNGEON), P1, 'Ana');
     if (!joined.ok) throw new Error();
-    for (const action of [END, move('hero-1', { x: 9, y: 2 }), open('hero-1', 'door-1'), { type: 'RESTART_GAME' } as const]) {
+    for (const action of [END, move('hero-1', { x: 9, y: 2, level: 0 }), open('hero-1', 'door-1'), { type: 'RESTART_GAME' } as const]) {
       expect(applyAction(joined.state, P1, action)).toMatchObject({ ok: false, code: 'GAME_NOT_RUNNING' });
     }
   });
@@ -67,15 +72,15 @@ describe('game setup', () => {
 describe('turn order and authority', () => {
   it('only lets the active player act, and only with their own hero', () => {
     const s = startedGame();
-    expect(applyAction(s, P2, move('hero-2', { x: 10, y: 2 }))).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
-    expect(applyAction(s, P1, move('hero-2', { x: 10, y: 2 }))).toMatchObject({ ok: false, code: 'NOT_YOUR_CHARACTER' });
-    expect(applyAction(s, P1, move('hero-9', { x: 10, y: 2 }))).toMatchObject({ ok: false, code: 'UNKNOWN_CHARACTER' });
+    expect(applyAction(s, P2, move('hero-2', { x: 10, y: 2, level: 0 }))).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
+    expect(applyAction(s, P1, move('hero-2', { x: 10, y: 2, level: 0 }))).toMatchObject({ ok: false, code: 'NOT_YOUR_CHARACTER' });
+    expect(applyAction(s, P1, move('hero-9', { x: 10, y: 2, level: 0 }))).toMatchObject({ ok: false, code: 'UNKNOWN_CHARACTER' });
     expect(applyAction(s, 'stranger', END)).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
     expect(applyAction(s, 'stranger', { type: 'RESTART_GAME' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
   });
 
   it('applies the same authority checks to OPEN_DOOR', () => {
-    const s = act(startedGame(), P1, move('hero-1', { x: 9, y: 6 })).state;
+    const s = act(startedGame(), P1, move('hero-1', { x: 9, y: 6, level: 0 })).state;
     expect(applyAction(s, P2, open('hero-2', 'door-1'))).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
     expect(applyAction(s, P1, open('hero-2', 'door-1'))).toMatchObject({ ok: false, code: 'NOT_YOUR_CHARACTER' });
     expect(applyAction(s, P1, open('hero-9', 'door-1'))).toMatchObject({ ok: false, code: 'UNKNOWN_CHARACTER' });
@@ -83,7 +88,7 @@ describe('turn order and authority', () => {
 
   it('alternates turns, refreshes the budget and counts rounds', () => {
     let s = startedGame();
-    s = act(s, P1, move('hero-1', { x: 9, y: 3 })).state;
+    s = act(s, P1, move('hero-1', { x: 9, y: 3, level: 0 })).state;
     expect(s.turn?.movementLeft).toBe(6);
     const ended = act(s, P1, END);
     expect(ended.events).toEqual([{ type: 'TURN_STARTED', playerId: P2, round: 1 }]);
@@ -96,43 +101,43 @@ describe('turn order and authority', () => {
 describe('movement', () => {
   it('moves along the server-computed path and spends movement', () => {
     const s = startedGame();
-    const result = act(s, P1, move('hero-1', { x: 9, y: 6 }));
+    const result = act(s, P1, move('hero-1', { x: 9, y: 6, level: 0 }));
     expect(result.events).toEqual([
       {
         type: 'CHARACTER_MOVED',
         characterId: 'hero-1',
-        path: [2, 3, 4, 5, 6].map((y) => ({ x: 9, y })),
+        path: [2, 3, 4, 5, 6].map((y) => ({ x: 9, y, level: 0 })),
       },
     ]);
-    expect(result.state.heroes[0]).toMatchObject({ position: { x: 9, y: 6 }, facing: 'S' });
+    expect(result.state.heroes[0]).toMatchObject({ position: { x: 9, y: 6, level: 0 }, facing: 'S' });
     expect(result.state.turn?.movementLeft).toBe(3);
   });
 
   it('allows splitting movement and rejects moves beyond the budget', () => {
     let s = startedGame();
-    s = act(s, P1, move('hero-1', { x: 9, y: 4 })).state;
-    s = act(s, P1, move('hero-1', { x: 10, y: 6 })).state;
+    s = act(s, P1, move('hero-1', { x: 9, y: 4, level: 0 })).state;
+    s = act(s, P1, move('hero-1', { x: 10, y: 6, level: 0 })).state;
     expect(s.turn?.movementLeft).toBe(2);
-    expect(applyAction(s, P1, move('hero-1', { x: 5, y: 5 }))).toMatchObject({ ok: false, code: 'NOT_ENOUGH_MOVEMENT' });
+    expect(applyAction(s, P1, move('hero-1', { x: 5, y: 5, level: 0 }))).toMatchObject({ ok: false, code: 'NOT_ENOUGH_MOVEMENT' });
   });
 
   it('rejects hidden tiles with the same code as non-existing ones (no leak)', () => {
     const s = startedGame();
     // (4,18) holds a monster in the hidden crypt; (0,0) does not exist at all.
-    const hiddenMonster = applyAction(s, P1, move('hero-1', { x: 4, y: 18 }));
-    const nothing = applyAction(s, P1, move('hero-1', { x: 0, y: 0 }));
+    const hiddenMonster = applyAction(s, P1, move('hero-1', { x: 4, y: 18, level: 0 }));
+    const nothing = applyAction(s, P1, move('hero-1', { x: 0, y: 0, level: 0 }));
     expect(hiddenMonster).toMatchObject({ ok: false, code: 'INVALID_TARGET' });
     expect(nothing).toMatchObject({ ok: false, code: 'INVALID_TARGET' });
   });
 
   it('cannot pass the closed double door', () => {
     const s = startedGame();
-    expect(applyAction(s, P1, move('hero-1', { x: 9, y: 7 }))).toMatchObject({ ok: false, code: 'INVALID_TARGET' });
+    expect(applyAction(s, P1, move('hero-1', { x: 9, y: 7, level: 0 }))).toMatchObject({ ok: false, code: 'INVALID_TARGET' });
   });
 
   it('rejects ending on the ally', () => {
     const s = startedGame();
-    expect(applyAction(s, P1, move('hero-1', { x: 10, y: 1 }))).toMatchObject({ ok: false, code: 'TARGET_OCCUPIED' });
+    expect(applyAction(s, P1, move('hero-1', { x: 10, y: 1, level: 0 }))).toMatchObject({ ok: false, code: 'TARGET_OCCUPIED' });
   });
 });
 
@@ -142,27 +147,27 @@ describe('doors and discovery', () => {
     expect(applyAction(s, P1, open('hero-1', 'door-1'))).toMatchObject({ ok: false, code: 'DOOR_NOT_ADJACENT' });
     expect(applyAction(s, P1, open('hero-1', 'door-2'))).toMatchObject({ ok: false, code: 'UNKNOWN_DOOR' });
     expect(applyAction(s, P1, open('hero-1', 'door-x'))).toMatchObject({ ok: false, code: 'UNKNOWN_DOOR' });
-    s = act(s, P1, move('hero-1', { x: 10, y: 6 })).state; // either leaf of the double door works
+    s = act(s, P1, move('hero-1', { x: 10, y: 6, level: 0 })).state; // either leaf of the double door works
     s = act(s, P1, open('hero-1', 'door-1')).state;
     expect(applyAction(s, P1, open('hero-1', 'door-1'))).toMatchObject({ ok: false, code: 'DOOR_ALREADY_OPEN' });
   });
 
   it('opening the double door reveals the corridor and allows moving on', () => {
     let s = startedGame();
-    s = act(s, P1, move('hero-1', { x: 9, y: 6 })).state;
+    s = act(s, P1, move('hero-1', { x: 9, y: 6, level: 0 })).state;
     const opened = act(s, P1, open('hero-1', 'door-1'));
     expect(opened.events).toEqual([
       { type: 'DOOR_OPENED', doorId: 'door-1', characterId: 'hero-1' },
-      { type: 'AREA_REVEALED', areaId: 'corridor', viaDoorId: 'door-1', monsterIds: [] },
+      { type: 'AREA_REVEALED', areaId: 'corridor', via: { kind: 'door', id: 'door-1' }, monsterIds: [] },
     ]);
     expect(opened.state.turn).toMatchObject({ actionsLeft: 0, movementLeft: 3 });
-    const moved = act(opened.state, P1, move('hero-1', { x: 9, y: 9 }));
+    const moved = act(opened.state, P1, move('hero-1', { x: 9, y: 9, level: 0 }));
     expect(moved.state.turn?.movementLeft).toBe(0);
   });
 
   it('only one action per turn', () => {
     let s = startedGame();
-    s = act(s, P1, move('hero-1', { x: 9, y: 6 })).state;
+    s = act(s, P1, move('hero-1', { x: 9, y: 6, level: 0 })).state;
     s = { ...s, turn: { ...s.turn!, actionsLeft: 0 } };
     expect(applyAction(s, P1, open('hero-1', 'door-1'))).toMatchObject({ ok: false, code: 'NO_ACTION_LEFT' });
   });
@@ -170,29 +175,106 @@ describe('doors and discovery', () => {
   it('plays the expected opening: each player reveals a room with monsters in round 2', () => {
     const afterTurn3 = playOpening(3);
     expect(afterTurn3.revealedAreas).toContain('crypt');
-    expect(afterTurn3.objectiveCompleted).toBe(false);
 
     let s = playOpening(3);
-    s = act(s, P2, move('hero-2', { x: 15, y: 12 })).state;
-    const final = act(s, P2, open('hero-2', 'door-3'));
-    expect(final.events.map((e) => e.type)).toEqual(['DOOR_OPENED', 'AREA_REVEALED', 'GAME_WON']);
-    expect(final.events[1]).toMatchObject({ areaId: 'mage', monsterIds: ['monster-3'] });
-    expect(final.state.objectiveCompleted).toBe(true);
+    s = act(s, P2, move('hero-2', { x: 15, y: 12, level: 0 })).state;
+    const mage = act(s, P2, open('hero-2', 'door-3'));
+    expect(mage.events.map((e) => e.type)).toEqual(['DOOR_OPENED', 'AREA_REVEALED']);
+    expect(mage.events[1]).toMatchObject({ areaId: 'mage', monsterIds: ['monster-3'] });
+    expect(mage.state.objectiveCompleted).toBe(false);
+  });
+
+  it('continues over both stairs and wins by entering the last chamber in round 4', () => {
+    const afterTurn6 = playOpening(6);
+    expect(afterTurn6.revealedAreas).toContain('observatory');
+    expect(createView(afterTurn6).objective).toMatchObject({ revealedAreas: 5, visitedAreas: 5, completed: false });
+
+    const s = act(playOpening(6), P1, move('hero-1', { x: 8, y: 17, level: 0 })).state;
+    const explored = act(s, P1, explore('hero-1', 'stairs-2'));
+    // Reveal first, then the hero takes the stairs down; entering the last area wins.
+    expect(explored.events.map((e) => e.type)).toEqual(['STAIRS_EXPLORED', 'AREA_REVEALED', 'CHARACTER_MOVED', 'GAME_WON']);
+    expect(explored.events[1]).toMatchObject({ areaId: 'ossuary', via: { kind: 'stairs', id: 'stairs-2' }, monsterIds: ['monster-4'] });
+    expect(explored.events[2]).toEqual({ type: 'CHARACTER_MOVED', characterId: 'hero-1', path: [{ x: 8, y: 19, level: -1 }] });
+    // Exploring from the landing faces the hero down the flight.
+    expect(explored.state.heroes[0]).toMatchObject({ position: { x: 8, y: 19, level: -1 }, facing: 'S' });
+    expect(explored.state.turn).toMatchObject({ actionsLeft: 0, movementLeft: 3, round: 4 });
+    expect(explored.state.objectiveCompleted).toBe(true);
+  });
+
+  it('only reveals when no movement point is left; the hero stays', () => {
+    let s = act(playOpening(6), P1, move('hero-1', { x: 8, y: 17, level: 0 })).state;
+    s = { ...s, turn: { ...s.turn!, movementLeft: 0 } };
+    const explored = act(s, P1, explore('hero-1', 'stairs-2'));
+    expect(explored.events.map((e) => e.type)).toEqual(['STAIRS_EXPLORED', 'AREA_REVEALED']);
+    expect(explored.state.heroes[0]).toMatchObject({ position: { x: 8, y: 17, level: 0 } });
+    // All areas revealed is not enough: the ossuary still has to be entered.
+    expect(explored.state.objectiveCompleted).toBe(false);
+  });
+
+  it('still supports the reveal-only objective', () => {
+    let s = playOpening(6, startedGame({ ...PROTOTYPE_DUNGEON, victory: { type: 'revealAllAreas' } }));
+    s = act(s, P1, move('hero-1', { x: 8, y: 17, level: 0 })).state;
+    s = { ...s, turn: { ...s.turn!, movementLeft: 0 } };
+    expect(act(s, P1, explore('hero-1', 'stairs-2')).events.map((e) => e.type)).toEqual(['STAIRS_EXPLORED', 'AREA_REVEALED', 'GAME_WON']);
   });
 
   it('keeps the game running after the objective (M7) and announces victory only once', () => {
-    let s = playOpening(4);
+    let s = playOpening(7);
     expect(s.phase).toBe('playing');
-    s = act(s, P1, move('hero-1', { x: 4, y: 14 })).state;
-    expect(s.heroes[0]?.position).toEqual({ x: 4, y: 14 });
-    expect(act(s, P1, END).events.some((e) => e.type === 'GAME_WON')).toBe(false);
+    s = act(s, P2, move('hero-2', { x: 17, y: 14, level: 1 })).state;
+    expect(s.heroes[1]?.position).toEqual({ x: 17, y: 14, level: 1 });
+    expect(act(s, P2, END).events.some((e) => e.type === 'GAME_WON')).toBe(false);
   });
 
   it('reveals the crypt monsters with the crypt', () => {
     const s = playOpening(2);
-    const moved = act(s, P1, move('hero-1', { x: 4, y: 12 })).state;
+    const moved = act(s, P1, move('hero-1', { x: 4, y: 12, level: 0 })).state;
     const opened = act(moved, P1, open('hero-1', 'door-2'));
     expect(opened.events[1]).toMatchObject({ type: 'AREA_REVEALED', areaId: 'crypt', monsterIds: ['monster-1', 'monster-2'] });
+  });
+});
+
+describe('stairs', () => {
+  it('requires known stairs, standing at one of their ends and an action', () => {
+    expect(applyAction(startedGame(), P1, explore('hero-1', 'stairs-1'))).toMatchObject({ ok: false, code: 'UNKNOWN_STAIRS' });
+    let s = playOpening(5); // mage room and crypt revealed, P2 to move
+    expect(applyAction(s, P2, explore('hero-2', 'stairs-x'))).toMatchObject({ ok: false, code: 'UNKNOWN_STAIRS' });
+    expect(applyAction(s, P2, explore('hero-2', 'stairs-1'))).toMatchObject({ ok: false, code: 'STAIRS_NOT_ADJACENT' });
+    s = act(s, P2, move('hero-2', { x: 18, y: 16, level: 0 })).state;
+    s = { ...s, turn: { ...s.turn!, actionsLeft: 0 } };
+    expect(applyAction(s, P2, explore('hero-2', 'stairs-1'))).toMatchObject({ ok: false, code: 'NO_ACTION_LEFT' });
+  });
+
+  it('unexplored stairs lead nowhere: the far level does not exist yet', () => {
+    let s = playOpening(5);
+    s = act(s, P2, move('hero-2', { x: 18, y: 16, level: 0 })).state;
+    expect(applyAction(s, P2, move('hero-2', { x: 18, y: 14, level: 1 }))).toMatchObject({ ok: false, code: 'INVALID_TARGET' });
+    const explored = act(s, P2, explore('hero-2', 'stairs-1'));
+    expect(explored.events[0]).toEqual({ type: 'STAIRS_EXPLORED', stairsId: 'stairs-1', characterId: 'hero-2' });
+    expect(explored.events[1]).toMatchObject({ areaId: 'observatory', via: { kind: 'stairs', id: 'stairs-1' }, monsterIds: ['monster-5'] });
+    // The last movement point takes the hero up right away.
+    expect(explored.events[2]).toEqual({ type: 'CHARACTER_MOVED', characterId: 'hero-2', path: [{ x: 18, y: 14, level: 1 }] });
+    expect(explored.state.heroes[1]).toMatchObject({ position: { x: 18, y: 14, level: 1 }, facing: 'N' });
+    expect(explored.state.turn).toMatchObject({ actionsLeft: 0, movementLeft: 0 });
+    expect(applyAction(explored.state, P2, explore('hero-2', 'stairs-1'))).toMatchObject({ ok: false, code: 'STAIRS_ALREADY_EXPLORED' });
+  });
+
+  it('one step leads from the landing down to the foot and back up', () => {
+    let s = playOpening(7); // stairs-1 explored, hero-2 on its landing, P2 to move
+    const down = act(s, P2, move('hero-2', { x: 18, y: 16, level: 0 }));
+    expect(down.events[0]).toEqual({ type: 'CHARACTER_MOVED', characterId: 'hero-2', path: [{ x: 18, y: 16, level: 0 }] });
+    expect(down.state.heroes[1]).toMatchObject({ facing: 'S' });
+    expect(down.state.turn?.movementLeft).toBe(7);
+    s = act(down.state, P2, move('hero-2', { x: 18, y: 17, level: 0 })).state;
+    const up = act(s, P2, move('hero-2', { x: 17, y: 14, level: 1 }));
+    expect(up.events[0]).toMatchObject({
+      path: [
+        { x: 18, y: 16, level: 0 },
+        { x: 18, y: 14, level: 1 },
+        { x: 17, y: 14, level: 1 },
+      ],
+    });
+    expect(up.state.turn?.movementLeft).toBe(3);
   });
 });
 
@@ -205,25 +287,26 @@ describe('restart', () => {
       { type: 'TURN_STARTED', playerId: P1, round: 1 },
     ]);
     expect(restarted.state.version).toBe(s.version + 1);
+    expect(restarted.state.restarts).toBe(1);
     expect(restarted.state.revealedAreas).toEqual(['hall']);
     expect(restarted.state.openDoors).toEqual([]);
     expect(restarted.state.players).toEqual(s.players);
     expect(restarted.state.heroes.map((h) => h.position)).toEqual([
-      { x: 9, y: 1 },
-      { x: 10, y: 1 },
+      { x: 9, y: 1, level: 0 },
+      { x: 10, y: 1, level: 0 },
     ]);
   });
 
   it('resets the objective so a new round can be won again', () => {
-    const won = playOpening(4);
+    const won = playOpening(7);
     expect(won.objectiveCompleted).toBe(true);
-    const restarted = act(won, P1, { type: 'RESTART_GAME' }).state;
+    const restarted = act(won, P2, { type: 'RESTART_GAME' }).state;
     expect(restarted.objectiveCompleted).toBe(false);
+    expect(restarted.exploredStairs).toEqual([]);
     expect(createView(restarted).objective).toMatchObject({ revealedAreas: 1, completed: false });
 
-    let s = playOpening(3, restarted);
-    s = act(s, P2, move('hero-2', { x: 15, y: 12 })).state;
-    expect(act(s, P2, open('hero-2', 'door-3')).events.map((e) => e.type)).toContain('GAME_WON');
+    expect(restarted.visitedAreas).toEqual(['hall']);
+    expect(playOpening(7, restarted).objectiveCompleted).toBe(true);
   });
 });
 
@@ -248,7 +331,7 @@ describe('visibility (M6)', () => {
 
   it('shows newly reachable doors once the corridor is revealed', () => {
     let s = startedGame();
-    s = act(s, P1, move('hero-1', { x: 9, y: 6 })).state;
+    s = act(s, P1, move('hero-1', { x: 9, y: 6, level: 0 })).state;
     s = act(s, P1, open('hero-1', 'door-1')).state;
     const view = createView(s);
     expect(view.doors.map((d) => [d.id, d.open])).toEqual([
@@ -257,7 +340,21 @@ describe('visibility (M6)', () => {
       ['door-3', false],
     ]);
     expect(view.monsters).toEqual([]);
-    expect(view.objective).toMatchObject({ revealedAreas: 2, totalAreas: 4, completed: false });
+    expect(view.objective).toMatchObject({ revealedAreas: 2, totalAreas: 6, completed: false });
+  });
+
+  it('shows stairs touching a revealed area, but nothing of the level beyond', () => {
+    expect(createView(startedGame()).stairs).toEqual([]);
+    const view = createView(playOpening(4));
+    expect(view.stairs).toEqual([
+      { id: 'stairs-1', name: 'Turmtreppe', bottom: { x: 18, y: 16, level: 0 }, direction: 'N', top: { x: 18, y: 14, level: 1 }, explored: false },
+      { id: 'stairs-2', name: 'Gruftstiege', bottom: { x: 8, y: 19, level: -1 }, direction: 'N', top: { x: 8, y: 17, level: 0 }, explored: false },
+    ]);
+    expect(view.areas.every((a) => a.level === 0)).toBe(true);
+    const serialized = JSON.stringify(view);
+    for (const secret of ['observatory', 'Sternwarte', 'ossuary', 'Gebeinkammer', 'monster-4', 'monster-5']) {
+      expect(serialized).not.toContain(secret);
+    }
   });
 
   it('after the crypt reveal nothing of the hidden mage room leaks', () => {
@@ -270,7 +367,7 @@ describe('visibility (M6)', () => {
     expect(view.doors.find((d) => d.id === 'door-3')).toMatchObject({ open: false });
     expect(JSON.stringify(view)).not.toContain('Magierstube');
     // Moving onto the hidden mage's tile is indistinguishable from a non-existing tile.
-    expect(applyAction(s, P2, move('hero-2', { x: 16, y: 17 }))).toMatchObject({ ok: false, code: 'INVALID_TARGET' });
+    expect(applyAction(s, P2, move('hero-2', { x: 16, y: 17, level: 0 }))).toMatchObject({ ok: false, code: 'INVALID_TARGET' });
   });
 });
 
@@ -279,22 +376,32 @@ describe('UI hints', () => {
     let s = startedGame();
     expect(canStillAct(createView(s), P1)).toBe(true);
     expect(canStillAct(createView(s), P2)).toBe(false);
-    s = act(s, P1, move('hero-1', { x: 9, y: 6 })).state;
+    s = act(s, P1, move('hero-1', { x: 9, y: 6, level: 0 })).state;
     expect(openableDoors(createView(s), P1).map((d) => d.id)).toEqual(['door-1']);
     s = act(s, P1, open('hero-1', 'door-1')).state;
-    s = act(s, P1, move('hero-1', { x: 9, y: 9 })).state;
+    s = act(s, P1, move('hero-1', { x: 9, y: 9, level: 0 })).state;
     expect(canStillAct(createView(s), P1)).toBe(false);
   });
 
   it('canStillAct stays true with no movement left while a door can still be opened', () => {
     let s = startedGame();
-    s = act(s, P1, move('hero-1', { x: 9, y: 6 })).state;
-    s = act(s, P1, move('hero-1', { x: 9, y: 5 })).state;
-    s = act(s, P1, move('hero-1', { x: 10, y: 5 })).state;
-    s = act(s, P1, move('hero-1', { x: 10, y: 6 })).state;
+    s = act(s, P1, move('hero-1', { x: 9, y: 6, level: 0 })).state;
+    s = act(s, P1, move('hero-1', { x: 9, y: 5, level: 0 })).state;
+    s = act(s, P1, move('hero-1', { x: 10, y: 5, level: 0 })).state;
+    s = act(s, P1, move('hero-1', { x: 10, y: 6, level: 0 })).state;
     expect(s.turn).toMatchObject({ movementLeft: 0, actionsLeft: 1 });
     expect(canStillAct(createView(s), P1)).toBe(true);
     s = act(s, P1, open('hero-1', 'door-1')).state;
     expect(canStillAct(createView(s), P1)).toBe(false);
+  });
+
+  it('offers unexplored stairs to a hero standing at either end', () => {
+    let s = playOpening(5);
+    expect(explorableStairs(createView(s), P2)).toEqual([]);
+    s = act(s, P2, move('hero-2', { x: 18, y: 16, level: 0 })).state;
+    expect(s.turn?.movementLeft).toBe(1);
+    expect(explorableStairs(createView(s), P2).map((st) => st.id)).toEqual(['stairs-1']);
+    s = act(s, P2, move('hero-2', { x: 18, y: 17, level: 0 })).state;
+    expect(canStillAct(createView(s), P2)).toBe(false);
   });
 });

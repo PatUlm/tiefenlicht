@@ -1,7 +1,17 @@
 import { Color4, Matrix, Vector3 } from '@babylonjs/core';
-import { Board, canStillAct, computeReachable, findPath, openableDoors, type ReachableTile } from '@dungeon/game-core';
+import {
+  Board,
+  canStillAct,
+  computeReachable,
+  explorableStairs,
+  findPath,
+  openableDoors,
+  stairsEnds,
+  type ReachableTile,
+} from '@dungeon/game-core';
 import {
   posKey,
+  samePos,
   type CharacterId,
   type ClientMessage,
   type DoorId,
@@ -10,14 +20,16 @@ import {
   type PlayerId,
   type Position,
   type ServerMessage,
+  type StairsId,
+  type StairsView,
 } from '@dungeon/shared';
 import { Connection, sessionStore, type ConnectionStatus, type StoredSession } from './net/connection.ts';
 import type { AssetLibrary } from './scene/assets.ts';
 import type { BoardOverlay } from './scene/board-overlay.ts';
-import { CharacterView, type CharacterSpec } from './scene/characters.ts';
+import { CharacterView, HERO_COLORS, type CharacterSpec } from './scene/characters.ts';
 import type { DungeonView } from './scene/dungeon-view.ts';
 import type { Effects } from './scene/effects.ts';
-import { tileCenter, worldToTile } from './scene/grid.ts';
+import { CELL, LEVEL_HEIGHT, levelY, tileCenter, worldToTile } from './scene/grid.ts';
 import { wait } from './scene/tween.ts';
 import type { World } from './scene/world.ts';
 import type { Hud } from './ui/hud.ts';
@@ -59,6 +71,11 @@ export class GameController {
   private connected = false;
   private reachable = new Map<string, ReachableTile>();
   private openable = new Set<DoorId>();
+  private explorable = new Set<StairsId>();
+  /** Stairs whose omen (M8 presentation) has been played in this game ... */
+  private readonly omensShown = new Set<StairsId>();
+  /** ... identified by game ID and restart count, so a reconnect keeps them and a restart resets them. */
+  private omensGame = '';
   private follow: CharacterView | null = null;
   private readonly keys = new Set<string>();
   private drag: { x: number; y: number; moved: boolean; button: number } | null = null;
@@ -72,6 +89,12 @@ export class GameController {
     });
     this.bindInput();
     d.world.scene.onBeforeRenderObservable.add(() => this.onFrame());
+    d.world.onLevelChanged.add((level) => {
+      d.overlay.setFocusLevel(level);
+      d.hud.minimap.setFocusLevel(level);
+      d.hud.flashLevel(level);
+      this.refreshInteraction();
+    });
   }
 
   start(): void {
@@ -100,6 +123,11 @@ export class GameController {
 
   endTurn(): void {
     if (this.isMyTurn() && this.canInteract()) this.request({ type: 'END_TURN' });
+  }
+
+  /** Shows another storey (minimap buttons, Page Up/Down). */
+  selectLevel(level: number): void {
+    if (this.d.dungeon.knownLevels().includes(level)) this.d.world.setFocusLevel(level);
   }
 
   restart(): void {
@@ -246,17 +274,24 @@ export class GameController {
 
   /** Snapshot: rebuild everything instantly, no discovery animation (M9). */
   private async rebuild(view: GameView): Promise<void> {
+    // A snapshot may belong to a restarted game (e.g. restarted while disconnected).
+    if (`${view.gameId}#${view.restarts}` !== this.omensGame) {
+      this.omensShown.clear();
+      this.omensGame = `${view.gameId}#${view.restarts}`;
+    }
     this.d.dungeon.clear();
     this.d.overlay.clear();
     for (const c of this.characters.values()) c.dispose();
     this.characters.clear();
+    const mine = this.myHero(view);
+    this.d.world.setFocusLevel(mine?.position.level ?? 0);
     for (const area of view.areas) {
       await this.d.dungeon.addArea(area, view);
       this.d.overlay.addGridTiles(area.tiles);
     }
     this.d.dungeon.ensureDoors(view);
+    this.d.dungeon.ensureStairs(view);
     this.syncCharacters(view);
-    const mine = this.myHero(view);
     this.d.world.focus(mine ? tileCenter(mine.position) : this.d.dungeon.areaCenter(view.areas[0]?.id ?? '') ?? Vector3.Zero(), true);
     this.applyView(view);
   }
@@ -279,7 +314,7 @@ export class GameController {
   }
 
   private async animateAll(events: readonly GameEvent[], view: GameView): Promise<void> {
-    for (const event of events) {
+    for (const [i, event] of events.entries()) {
       if (event.type === 'GAME_RESTARTED') {
         await this.rebuild(view);
         this.d.hud.closeOverlay();
@@ -287,11 +322,12 @@ export class GameController {
         this.d.hud.log('Neues Spiel gestartet.');
         continue;
       }
-      await this.animate(event, view);
+      await this.animate(event, view, events.slice(i + 1));
     }
   }
 
-  private async animate(event: GameEvent, view: GameView): Promise<void> {
+  /** `later`: the remaining events of the same update (e.g. the step that follows exploring stairs). */
+  private async animate(event: GameEvent, view: GameView, later: readonly GameEvent[]): Promise<void> {
     const { world, dungeon, hud, effects } = this.d;
     switch (event.type) {
       case 'PLAYER_JOINED': {
@@ -321,9 +357,13 @@ export class GameController {
       case 'CHARACTER_MOVED': {
         const character = this.characters.get(event.characterId);
         if (!character) break;
+        const from = character.tile;
         this.follow = character;
         await character.walk(event.path);
         this.follow = null;
+        // The last step may have changed the storey without a frame in between.
+        world.setFocusLevel(character.tile.level);
+        await this.playOmens(character, from, event.path, view);
         break;
       }
       case 'DOOR_OPENED': {
@@ -342,8 +382,31 @@ export class GameController {
         await dungeon.setDoorOpen(event.doorId, true);
         break;
       }
+      case 'STAIRS_EXPLORED': {
+        const hero = this.characters.get(event.characterId);
+        const stairs = view.stairs.find((s) => s.id === event.stairsId);
+        if (stairs) {
+          world.focus(dungeon.stairsCenter(stairs));
+          // The animated figure still stands where it explored from (the view already has it moved on).
+          const from = hero?.tile ?? stairs.bottom;
+          const farEnd = stairsEnds(stairs).find((p) => !samePos(p, from))!;
+          const area = view.areas.find((a) => a.tiles.some((t) => samePos(t, farEnd)));
+          const climbs = later.some((e) => e.type === 'CHARACTER_MOVED' && e.characterId === event.characterId);
+          const goes = farEnd.level > stairs.bottom.level ? 'steigt hinauf' : 'steigt hinab';
+          hud.log(`${stairs.name} erkundet: ${area?.name ?? 'ein neuer Bereich'} ist aufgedeckt. ${hero?.spec.name ?? 'Der Held'} ${climbs ? goes : 'bleibt stehen'}.`);
+        }
+        const heroView = view.heroes.find((h) => h.id === event.characterId);
+        if (hero && heroView) {
+          await hero.turnTo(heroView.facing);
+          void hero.interact();
+          await wait(world.scene, 450);
+        }
+        await dungeon.setStairsExplored(event.stairsId, true);
+        break;
+      }
       case 'AREA_REVEALED':
-        await this.revealArea(event, view);
+        // When the hero walks over right after (stairs), the camera stays on the new level.
+        await this.revealArea(event, view, later.some((e) => e.type === 'CHARACTER_MOVED'));
         break;
       case 'TURN_STARTED': {
         const player = view.players.find((p) => p.id === event.playerId);
@@ -351,7 +414,7 @@ export class GameController {
         const mine = event.playerId === this.session?.playerId;
         hud.banner(mine ? 'Du bist am Zug!' : `${hero?.spec.name ?? player?.name} ist am Zug`, `Runde ${event.round}`, 1800);
         hud.log(`Runde ${event.round}: ${player?.name ?? '?'} ist am Zug.`);
-        if (hero) world.focus(hero.root.position);
+        if (hero) this.focusCharacter(hero);
         break;
       }
       case 'GAME_WON':
@@ -362,20 +425,53 @@ export class GameController {
         }
         hud.log('Das Gewölbe ist vollständig erkundet!');
         await wait(world.scene, 900);
-        hud.showVictory();
+        hud.showVictory(view.objective);
         break;
       case 'GAME_RESTARTED':
         break;
     }
   }
 
-  private async revealArea(event: Extract<GameEvent, { type: 'AREA_REVEALED' }>, view: GameView): Promise<void> {
+  /**
+   * Omen (presentation only): the first time a hero walks into the area at the known
+   * end of unexplored stairs, the camera glances at them and their omen swells.
+   */
+  private async playOmens(character: CharacterView, from: Position, path: readonly Position[], view: GameView): Promise<void> {
+    if (character.spec.monster) return;
+    const areaOf = (p: Position) => view.areas.find((a) => a.tiles.some((t) => samePos(t, p)))?.id;
+    for (const stairs of view.stairs) {
+      if (stairs.explored || this.omensShown.has(stairs.id)) continue;
+      const fromAbove = view.areas.some((a) => a.tiles.some((t) => samePos(t, stairs.top)));
+      const knownArea = areaOf(fromAbove ? stairs.top : stairs.bottom);
+      if (!knownArea || areaOf(from) === knownArea || !path.some((p) => areaOf(p) === knownArea)) continue;
+      this.omensShown.add(stairs.id);
+      const { world, dungeon, hud } = this.d;
+      world.focus(dungeon.stairsCenter(stairs));
+      dungeon.swellOmen(stairs.id);
+      if (fromAbove) {
+        hud.banner(stairs.name, 'Kalter Hauch aus der Tiefe', 2200);
+        hud.log(`Ein kalter, graublauer Hauch steigt aus der ${stairs.name}.`);
+      } else {
+        hud.banner(stairs.name, 'Sternenfunken von oben', 2200);
+        hud.log(`Leuchtende Sternenfunken fallen die ${stairs.name} herab.`);
+      }
+      await wait(world.scene, 1600);
+      world.focus(character.root.position);
+    }
+  }
+
+  private async revealArea(event: Extract<GameEvent, { type: 'AREA_REVEALED' }>, view: GameView, stayOnLevel: boolean): Promise<void> {
     const { world, dungeon, hud, overlay } = this.d;
     const area = view.areas.find((a) => a.id === event.areaId);
     if (!area) return;
     const inArea = new Set(area.tiles.map(posKey));
-    const door = view.doors.find((d) => d.id === event.viaDoorId);
-    const origin = door?.edges.flat().find((p) => inArea.has(posKey(p))) ?? area.tiles[0]!;
+    const via = event.via;
+    const door = via.kind === 'door' ? view.doors.find((d) => d.id === via.id) : undefined;
+    const stairs = via.kind === 'stairs' ? view.stairs.find((s) => s.id === via.id) : undefined;
+    const passageTiles = door ? door.edges.flat() : stairs ? stairsEnds(stairs) : [];
+    const origin = passageTiles.find((p) => inArea.has(posKey(p))) ?? area.tiles[0]!;
+    const previousLevel = world.focusLevel;
+    world.setFocusLevel(area.level);
     world.focus(Vector3.Lerp(tileCenter(origin), this.centerOf(area.tiles), 0.6));
     await dungeon.addArea(area, view, origin);
     overlay.addGridTiles(area.tiles);
@@ -397,6 +493,11 @@ export class GameController {
       await c.awaken();
     });
     await Promise.all(awakenings);
+    // A storey discovered over stairs: back to the hero who explored it, unless it follows.
+    if (area.level !== previousLevel && !stayOnLevel) {
+      await wait(world.scene, 700);
+      world.setFocusLevel(previousLevel);
+    }
   }
 
   private syncCharacters(view: GameView): void {
@@ -404,7 +505,7 @@ export class GameController {
     for (const h of view.heroes) {
       alive.add(h.id);
       const c = this.ensureCharacter({ ...h, monster: false });
-      if (!c.moving && (c.tile.x !== h.position.x || c.tile.y !== h.position.y)) c.place(h.position, h.facing);
+      if (!c.moving && !samePos(c.tile, h.position)) c.place(h.position, h.facing);
     }
     for (const m of view.monsters) {
       alive.add(m.id);
@@ -452,10 +553,12 @@ export class GameController {
   private clearInteraction(): void {
     this.reachable = new Map();
     this.openable = new Set();
+    this.explorable = new Set();
     this.d.overlay.setReachable([]);
     this.d.overlay.setPath([]);
     this.d.overlay.setHover(null, false);
     this.d.dungeon.setOpenableDoors(this.openable);
+    this.d.dungeon.setExplorableStairs(this.explorable);
     this.d.hud.tooltipAt(null);
   }
 
@@ -475,29 +578,47 @@ export class GameController {
     const hero = this.myHero(view)!;
     this.reachable = computeReachable(new Board(view), hero.id, hero.position, view.turn!.movementLeft);
     this.openable = new Set(openableDoors(view, you).map((d) => d.id));
-    this.d.overlay.setReachable([...this.reachable.values()].map((r) => r.position));
+    this.explorable = new Set(explorableStairs(view, you).map((s) => s.id));
+    const focus = this.d.world.focusLevel;
+    this.d.overlay.setReachable([...this.reachable.values()].map((r) => r.position).filter((p) => p.level === focus));
     this.d.dungeon.setOpenableDoors(this.openable);
+    this.d.dungeon.setExplorableStairs(this.explorable);
     this.hover(this.lastPointer.x, this.lastPointer.y);
   }
 
   /**
-   * Resolves what the pointer means. Door pick volumes can cover floor tiles
-   * in front of them, so priority is: openable door › reachable tile › other.
+   * Where clicking stairs leads: preferably through the flight to the other storey,
+   * otherwise to its nearer end. Undefined if neither end is reachable this turn.
    */
-  private pickAt(x: number, y: number): { door?: DoorId; character?: CharacterId; tile?: Position } {
-    const { scene, camera } = this.d.world;
+  private stairsTarget(stairs: StairsView): ReachableTile | undefined {
+    const hero = this.myHero();
+    if (!hero) return undefined;
+    const ends = stairsEnds(stairs).sort((a, b) => Number(a.level === hero.position.level) - Number(b.level === hero.position.level));
+    return ends.map((p) => this.reachable.get(posKey(p))).find((r) => r !== undefined);
+  }
+
+  /**
+   * Resolves what the pointer means. Door and stairs pick volumes can cover floor
+   * tiles next to them, so priority is: openable door › explorable stairs ›
+   * reachable tile › other. Tiles are picked on the floor of the focus level.
+   */
+  private pickAt(x: number, y: number): { door?: DoorId; stairs?: StairsId; character?: CharacterId; tile?: Position } {
+    const { scene, camera, focusLevel } = this.d.world;
     let tile: Position | undefined;
     const ray = scene.createPickingRay(x, y, Matrix.Identity(), camera);
     if (ray.direction.y < -1e-4) {
-      const t = -ray.origin.y / ray.direction.y;
-      tile = worldToTile(ray.origin.add(ray.direction.scale(t)));
+      const t = (levelY(focusLevel) - ray.origin.y) / ray.direction.y;
+      tile = worldToTile(ray.origin.add(ray.direction.scale(t)), focusLevel);
     }
     const hit = scene.pick(x, y, (m) => m.isPickable && m.isEnabled() && m.metadata?.pick === true);
     const door = this.d.dungeon.doorFromMesh(hit?.pickedMesh);
+    const stairs = this.d.dungeon.stairsFromMesh(hit?.pickedMesh);
     const character = hit?.pickedMesh?.metadata?.characterId as CharacterId | undefined;
     if (door && this.openable.has(door)) return { door };
+    if (stairs && this.explorable.has(stairs)) return { stairs };
     if (tile && this.reachable.has(posKey(tile))) return { tile };
     if (door) return { door };
+    if (stairs) return { stairs };
     if (character) return { character, tile: this.characters.get(character)?.tile };
     return { tile };
   }
@@ -521,6 +642,44 @@ export class GameController {
       else hud.tooltipAt('Stelle dich direkt vor die Tür', x, y, 'bad');
       return;
     }
+    if (target.stairs) {
+      const stairs = view.stairs.find((s) => s.id === target.stairs)!;
+      overlay.setHover(null, false);
+      if (this.explorable.has(stairs.id)) {
+        const hero = this.myHero()!;
+        const far = stairsEnds(stairs).find((p) => !samePos(p, hero.position))!;
+        if ((view.turn?.movementLeft ?? 0) >= 1) {
+          overlay.setPath([far], hero.position);
+          const goes = far.level > hero.position.level ? 'steigt hinauf' : 'steigt hinab';
+          hud.tooltipAt(`${stairs.name} erkunden · 1 Aktion + 1 BP – deckt den Bereich auf, dein Held ${goes}.`, x, y, 'good');
+        } else {
+          overlay.setPath([]);
+          hud.tooltipAt(`${stairs.name} erkunden · 1 Aktion – deckt den Bereich auf; ohne Bewegungspunkt bleibt dein Held stehen.`, x, y, 'good');
+        }
+        return;
+      }
+      if (!stairs.explored) {
+        overlay.setPath([]);
+        if ((view.turn?.actionsLeft ?? 0) <= 0) hud.tooltipAt('Keine Aktion mehr in diesem Zug', x, y, 'bad');
+        else hud.tooltipAt('Stelle dich direkt vor die Treppe', x, y, 'bad');
+        return;
+      }
+      const hero = this.myHero()!;
+      const reach = this.stairsTarget(stairs);
+      overlay.setPath(reach?.path ?? [], hero.position);
+      if (!reach) hud.tooltipAt('Zu weit für diesen Zug', x, y, 'bad');
+      else {
+        const climb = reach.position.level - hero.position.level;
+        const text =
+          climb > 0
+            ? `Hinauf · ${reach.cost} BP – dein Held wechselt ins höhere Geschoss.`
+            : climb < 0
+              ? `Hinab · ${reach.cost} BP – dein Held wechselt ins tiefere Geschoss.`
+              : `Zur ${stairs.name} · ${reach.cost} BP`;
+        hud.tooltipAt(text, x, y, 'good');
+      }
+      return;
+    }
     const tile = target.tile;
     if (!tile || !new Board(view).hasTile(tile)) {
       overlay.setHover(null, false);
@@ -531,13 +690,13 @@ export class GameController {
     const reach = this.reachable.get(posKey(tile));
     if (reach) {
       overlay.setHover(tile, true);
-      overlay.setPath(reach.path);
+      overlay.setPath(reach.path, this.myHero()!.position);
       hud.tooltipAt(`${reach.cost} ${reach.cost === 1 ? 'Feld' : 'Felder'}`, x, y, 'good');
       return;
     }
     overlay.setPath([]);
     const hero = this.myHero(view)!;
-    if (tile.x === hero.position.x && tile.y === hero.position.y) {
+    if (samePos(tile, hero.position)) {
       overlay.setHover(null, false);
       hud.tooltipAt(`${hero.name} – noch ${view.turn!.movementLeft} Bewegung`, x, y);
       return;
@@ -553,6 +712,16 @@ export class GameController {
     const hero = this.myHero()!;
     if (target.door) {
       if (this.openable.has(target.door)) this.request({ type: 'OPEN_DOOR', characterId: hero.id, doorId: target.door });
+      return;
+    }
+    if (target.stairs) {
+      const stairs = this.view.stairs.find((s) => s.id === target.stairs)!;
+      if (this.explorable.has(stairs.id)) {
+        this.request({ type: 'EXPLORE_STAIRS', characterId: hero.id, stairsId: stairs.id });
+        return;
+      }
+      const reach = stairs.explored ? this.stairsTarget(stairs) : undefined;
+      if (reach) this.request({ type: 'MOVE_CHARACTER', characterId: hero.id, target: reach.position });
       return;
     }
     if (target.tile && this.reachable.has(posKey(target.tile))) {
@@ -609,7 +778,12 @@ export class GameController {
       else if (key === 'g') this.d.overlay.toggleGrid();
       else if (key === 'f') {
         const hero = this.characters.get(this.myHero()?.id ?? '');
-        if (hero) this.d.world.focus(hero.root.position);
+        if (hero) this.focusCharacter(hero);
+      } else if (key === 'pageup' || key === 'pagedown') {
+        e.preventDefault();
+        const levels = this.d.dungeon.knownLevels();
+        const index = levels.indexOf(this.d.world.focusLevel) + (key === 'pageup' ? 1 : -1);
+        if (index >= 0 && index < levels.length) this.d.world.setFocusLevel(levels[index]!);
       } else if (key === ' ') {
         e.preventDefault();
         this.endTurn();
@@ -630,8 +804,28 @@ export class GameController {
     if (this.keys.has('w') || this.keys.has('arrowup')) dy += speed;
     if (this.keys.has('s') || this.keys.has('arrowdown')) dy -= speed;
     if (dx || dy) world.pan(dx, dy);
-    if (this.follow) world.focus(this.follow.root.position);
+    if (this.follow) {
+      // The camera follows a walking figure, also up and down stairs.
+      world.setFocusLevel(this.follow.viewLevel);
+      world.focus(this.follow.root.position);
+    }
     if (this.view) world.clampTarget(this.view.width, this.view.height);
+    this.d.hud.minimap.frame(
+      world.camera.alpha,
+      [...this.characters.values()].map((c) => ({
+        x: c.root.position.x / CELL,
+        y: c.root.position.z / CELL,
+        level: c.root.position.y / LEVEL_HEIGHT,
+        color: c.spec.monster ? '' : HERO_COLORS[c.spec.kind as keyof typeof HERO_COLORS],
+        monster: c.spec.monster,
+      })),
+    );
+  }
+
+  /** Camera on a figure, on its storey. */
+  private focusCharacter(character: CharacterView): void {
+    this.d.world.setFocusLevel(character.tile.level);
+    this.d.world.focus(character.root.position);
   }
 
   private playerName(view: GameView, id: PlayerId): string {

@@ -4,13 +4,14 @@
   "width": 20,
   "height": 20,
   "rules": { "movementPerTurn": 8, "actionsPerTurn": 1 },
-  "victory": { "type": "revealAllAreas" },
+  "victory": { "type": "visitAllAreas" },
   "areas": [
     {
       "id": "hall",
       "name": "Eingangshalle",
       "kind": "room",
       "theme": "hall",
+      "level": 0,
       "rects": [{ "x": 5, "y": 0, "w": 10, "h": 7 }],
       "initiallyRevealed": true
     },
@@ -19,6 +20,7 @@
       "name": "Gang",
       "kind": "corridor",
       "theme": "corridor",
+      "level": 0,
       "rects": [
         { "x": 9, "y": 7, "w": 2, "h": 4 },
         { "x": 3, "y": 11, "w": 14, "h": 2 }
@@ -30,7 +32,12 @@
       "name": "Krypta",
       "kind": "room",
       "theme": "crypt",
-      "rects": [{ "x": 1, "y": 13, "w": 8, "h": 7 }],
+      "level": 0,
+      "rects": [
+        { "x": 1, "y": 13, "w": 7, "h": 7 },
+        { "x": 8, "y": 13, "w": 1, "h": 5 },
+        { "x": 8, "y": 19, "w": 1, "h": 1 }
+      ],
       "initiallyRevealed": false
     },
     {
@@ -38,7 +45,37 @@
       "name": "Magierstube",
       "kind": "room",
       "theme": "mage",
-      "rects": [{ "x": 11, "y": 13, "w": 8, "h": 7 }],
+      "level": 0,
+      "rects": [
+        { "x": 11, "y": 13, "w": 7, "h": 7 },
+        { "x": 18, "y": 13, "w": 1, "h": 2 },
+        { "x": 18, "y": 16, "w": 1, "h": 4 }
+      ],
+      "initiallyRevealed": false
+    },
+    {
+      "id": "ossuary",
+      "name": "Gebeinkammer",
+      "kind": "room",
+      "theme": "crypt",
+      "level": -1,
+      "rects": [
+        { "x": 3, "y": 14, "w": 5, "h": 6 },
+        { "x": 8, "y": 19, "w": 1, "h": 1 }
+      ],
+      "initiallyRevealed": false
+    },
+    {
+      "id": "observatory",
+      "name": "Sternwarte",
+      "kind": "room",
+      "theme": "mage",
+      "level": 1,
+      "rects": [
+        { "x": 13, "y": 13, "w": 5, "h": 5 },
+        { "x": 18, "y": 13, "w": 1, "h": 2 },
+        { "x": 18, "y": 16, "w": 1, "h": 2 }
+      ],
       "initiallyRevealed": false
     }
   ],
@@ -48,77 +85,105 @@
       "name": "Große Doppeltür",
       "style": "grand",
       "edges": [
-        [{ "x": 9, "y": 6 }, { "x": 9, "y": 7 }],
-        [{ "x": 10, "y": 6 }, { "x": 10, "y": 7 }]
+        [{ "x": 9, "y": 6, "level": 0 }, { "x": 9, "y": 7, "level": 0 }],
+        [{ "x": 10, "y": 6, "level": 0 }, { "x": 10, "y": 7, "level": 0 }]
       ]
     },
     {
       "id": "door-2",
       "name": "Eisentür",
       "style": "iron",
-      "edges": [[{ "x": 4, "y": 12 }, { "x": 4, "y": 13 }]]
+      "edges": [[{ "x": 4, "y": 12, "level": 0 }, { "x": 4, "y": 13, "level": 0 }]]
     },
     {
       "id": "door-3",
       "name": "Arkane Tür",
       "style": "arcane",
-      "edges": [[{ "x": 15, "y": 12 }, { "x": 15, "y": 13 }]]
+      "edges": [[{ "x": 15, "y": 12, "level": 0 }, { "x": 15, "y": 13, "level": 0 }]]
     }
   ],
+  "stairs": [
+    { "id": "stairs-1", "name": "Turmtreppe", "bottom": { "x": 18, "y": 16, "level": 0 }, "direction": "N" },
+    { "id": "stairs-2", "name": "Gruftstiege", "bottom": { "x": 8, "y": 19, "level": -1 }, "direction": "N" }
+  ],
   "heroStarts": [
-    { "slot": 0, "position": { "x": 9, "y": 1 }, "facing": "S" },
-    { "slot": 1, "position": { "x": 10, "y": 1 }, "facing": "S" }
+    { "slot": 0, "position": { "x": 9, "y": 1, "level": 0 }, "facing": "S" },
+    { "slot": 1, "position": { "x": 10, "y": 1, "level": 0 }, "facing": "S" }
   ],
   "props": [
-    { "id": "hall-pillar-1", "kind": "pillar", "position": { "x": 7, "y": 2 }, "facing": "S" },
-    { "id": "hall-pillar-2", "kind": "pillar", "position": { "x": 12, "y": 2 }, "facing": "S" },
-    { "id": "hall-pillar-3", "kind": "pillar", "position": { "x": 7, "y": 4 }, "facing": "S" },
-    { "id": "hall-pillar-4", "kind": "pillar", "position": { "x": 12, "y": 4 }, "facing": "S" },
-    { "id": "hall-statue", "kind": "statue", "position": { "x": 14, "y": 3 }, "facing": "W" },
-    { "id": "hall-barrel", "kind": "barrel", "position": { "x": 5, "y": 0 }, "facing": "S" },
-    { "id": "hall-crates-1", "kind": "crates", "position": { "x": 14, "y": 0 }, "facing": "S" },
-    { "id": "hall-keg", "kind": "keg", "position": { "x": 5, "y": 6 }, "facing": "E" },
-    { "id": "hall-crates-2", "kind": "crates", "position": { "x": 14, "y": 6 }, "facing": "W" },
+    { "id": "hall-pillar-1", "kind": "pillar", "position": { "x": 7, "y": 2, "level": 0 }, "facing": "S" },
+    { "id": "hall-pillar-2", "kind": "pillar", "position": { "x": 12, "y": 2, "level": 0 }, "facing": "S" },
+    { "id": "hall-pillar-3", "kind": "pillar", "position": { "x": 7, "y": 4, "level": 0 }, "facing": "S" },
+    { "id": "hall-pillar-4", "kind": "pillar", "position": { "x": 12, "y": 4, "level": 0 }, "facing": "S" },
+    { "id": "hall-statue", "kind": "statue", "position": { "x": 14, "y": 3, "level": 0 }, "facing": "W" },
+    { "id": "hall-barrel", "kind": "barrel", "position": { "x": 5, "y": 0, "level": 0 }, "facing": "S" },
+    { "id": "hall-crates-1", "kind": "crates", "position": { "x": 14, "y": 0, "level": 0 }, "facing": "S" },
+    { "id": "hall-keg", "kind": "keg", "position": { "x": 5, "y": 6, "level": 0 }, "facing": "E" },
+    { "id": "hall-crates-2", "kind": "crates", "position": { "x": 14, "y": 6, "level": 0 }, "facing": "W" },
 
-    { "id": "corridor-barrel", "kind": "barrel", "position": { "x": 3, "y": 12 }, "facing": "E" },
-    { "id": "corridor-rubble", "kind": "rubble", "position": { "x": 16, "y": 12 }, "facing": "W" },
+    { "id": "corridor-barrel", "kind": "barrel", "position": { "x": 3, "y": 12, "level": 0 }, "facing": "E" },
+    { "id": "corridor-rubble", "kind": "rubble", "position": { "x": 16, "y": 12, "level": 0 }, "facing": "W" },
 
-    { "id": "crypt-sarcophagus", "kind": "sarcophagus", "position": { "x": 4, "y": 16 }, "size": { "w": 1, "h": 2 }, "facing": "S" },
-    { "id": "crypt-candles-1", "kind": "candles", "position": { "x": 3, "y": 15 }, "facing": "S" },
-    { "id": "crypt-candles-2", "kind": "candles", "position": { "x": 5, "y": 15 }, "facing": "S" },
-    { "id": "crypt-chest", "kind": "chest", "position": { "x": 1, "y": 19 }, "facing": "E" },
-    { "id": "crypt-rubble", "kind": "rubble", "position": { "x": 8, "y": 13 }, "facing": "S" },
+    { "id": "crypt-sarcophagus", "kind": "sarcophagus", "position": { "x": 4, "y": 16, "level": 0 }, "size": { "w": 1, "h": 2 }, "facing": "S" },
+    { "id": "crypt-candles-1", "kind": "candles", "position": { "x": 3, "y": 15, "level": 0 }, "facing": "S" },
+    { "id": "crypt-candles-2", "kind": "candles", "position": { "x": 5, "y": 15, "level": 0 }, "facing": "S" },
+    { "id": "crypt-chest", "kind": "chest", "position": { "x": 1, "y": 19, "level": 0 }, "facing": "E" },
+    { "id": "crypt-rubble", "kind": "rubble", "position": { "x": 8, "y": 13, "level": 0 }, "facing": "S" },
 
-    { "id": "mage-shelf-1", "kind": "bookshelf", "position": { "x": 11, "y": 15 }, "facing": "E" },
-    { "id": "mage-shelf-2", "kind": "bookshelf", "position": { "x": 11, "y": 16 }, "facing": "E" },
-    { "id": "mage-shelf-3", "kind": "bookshelf", "position": { "x": 18, "y": 13 }, "facing": "S" },
-    { "id": "mage-table", "kind": "table", "position": { "x": 14, "y": 16 }, "size": { "w": 2, "h": 1 }, "facing": "S" },
-    { "id": "mage-cauldron", "kind": "cauldron", "position": { "x": 12, "y": 18 }, "facing": "S" },
-    { "id": "mage-crystal", "kind": "crystal", "position": { "x": 17, "y": 18 }, "facing": "S" }
+    { "id": "mage-shelf-1", "kind": "bookshelf", "position": { "x": 11, "y": 15, "level": 0 }, "facing": "E" },
+    { "id": "mage-shelf-2", "kind": "bookshelf", "position": { "x": 11, "y": 16, "level": 0 }, "facing": "E" },
+    { "id": "mage-shelf-3", "kind": "bookshelf", "position": { "x": 18, "y": 13, "level": 0 }, "facing": "S" },
+    { "id": "mage-table", "kind": "table", "position": { "x": 14, "y": 16, "level": 0 }, "size": { "w": 2, "h": 1 }, "facing": "S" },
+    { "id": "mage-cauldron", "kind": "cauldron", "position": { "x": 12, "y": 18, "level": 0 }, "facing": "S" },
+    { "id": "mage-crystal", "kind": "crystal", "position": { "x": 17, "y": 18, "level": 0 }, "facing": "S" },
+
+    { "id": "ossuary-sarcophagus", "kind": "sarcophagus", "position": { "x": 5, "y": 16, "level": -1 }, "size": { "w": 1, "h": 2 }, "facing": "S" },
+    { "id": "ossuary-candles", "kind": "candles", "position": { "x": 3, "y": 19, "level": -1 }, "facing": "S" },
+    { "id": "ossuary-chest", "kind": "chest", "position": { "x": 3, "y": 14, "level": -1 }, "facing": "S" },
+    { "id": "ossuary-rubble", "kind": "rubble", "position": { "x": 7, "y": 14, "level": -1 }, "facing": "W" },
+    { "id": "ossuary-bones-1", "kind": "bonePile", "position": { "x": 7, "y": 16, "level": -1 }, "facing": "W" },
+    { "id": "ossuary-bones-2", "kind": "bonePile", "position": { "x": 6, "y": 19, "level": -1 }, "facing": "N" },
+
+    { "id": "observatory-table", "kind": "table", "position": { "x": 14, "y": 13, "level": 1 }, "size": { "w": 2, "h": 1 }, "facing": "S" },
+    { "id": "observatory-telescope", "kind": "telescope", "position": { "x": 16, "y": 15, "level": 1 }, "facing": "N" },
+    { "id": "observatory-chart", "kind": "starChart", "position": { "x": 13, "y": 15, "level": 1 }, "size": { "w": 2, "h": 2 }, "facing": "S", "blocking": false },
+    { "id": "observatory-shelf", "kind": "bookshelf", "position": { "x": 13, "y": 17, "level": 1 }, "facing": "E" },
+    { "id": "observatory-chest", "kind": "chest", "position": { "x": 17, "y": 17, "level": 1 }, "facing": "W" }
   ],
   "wallDecor": [
-    { "id": "hall-torch-1", "kind": "torch", "position": { "x": 6, "y": 0 }, "wall": "N" },
-    { "id": "hall-torch-2", "kind": "torch", "position": { "x": 13, "y": 0 }, "wall": "N" },
-    { "id": "hall-torch-3", "kind": "torch", "position": { "x": 5, "y": 4 }, "wall": "W" },
-    { "id": "hall-banner-1", "kind": "banner", "position": { "x": 8, "y": 0 }, "wall": "N" },
-    { "id": "hall-banner-2", "kind": "banner", "position": { "x": 11, "y": 0 }, "wall": "N" },
-    { "id": "hall-shield", "kind": "shield", "position": { "x": 5, "y": 2 }, "wall": "W" },
+    { "id": "hall-torch-1", "kind": "torch", "position": { "x": 6, "y": 0, "level": 0 }, "wall": "N" },
+    { "id": "hall-torch-2", "kind": "torch", "position": { "x": 13, "y": 0, "level": 0 }, "wall": "N" },
+    { "id": "hall-torch-3", "kind": "torch", "position": { "x": 5, "y": 4, "level": 0 }, "wall": "W" },
+    { "id": "hall-banner-1", "kind": "banner", "position": { "x": 8, "y": 0, "level": 0 }, "wall": "N" },
+    { "id": "hall-banner-2", "kind": "banner", "position": { "x": 11, "y": 0, "level": 0 }, "wall": "N" },
+    { "id": "hall-shield", "kind": "shield", "position": { "x": 5, "y": 2, "level": 0 }, "wall": "W" },
 
-    { "id": "corridor-torch-1", "kind": "torch", "position": { "x": 9, "y": 8 }, "wall": "W" },
-    { "id": "corridor-torch-2", "kind": "torch", "position": { "x": 3, "y": 11 }, "wall": "W" },
-    { "id": "corridor-torch-3", "kind": "torch", "position": { "x": 13, "y": 11 }, "wall": "N" },
+    { "id": "corridor-torch-1", "kind": "torch", "position": { "x": 9, "y": 8, "level": 0 }, "wall": "W" },
+    { "id": "corridor-torch-2", "kind": "torch", "position": { "x": 3, "y": 11, "level": 0 }, "wall": "W" },
+    { "id": "corridor-torch-3", "kind": "torch", "position": { "x": 13, "y": 11, "level": 0 }, "wall": "N" },
 
-    { "id": "crypt-torch-1", "kind": "torch", "position": { "x": 1, "y": 14 }, "wall": "W" },
-    { "id": "crypt-torch-2", "kind": "torch", "position": { "x": 1, "y": 18 }, "wall": "W" },
-    { "id": "crypt-banner", "kind": "banner", "position": { "x": 1, "y": 16 }, "wall": "W" },
+    { "id": "crypt-torch-1", "kind": "torch", "position": { "x": 1, "y": 14, "level": 0 }, "wall": "W" },
+    { "id": "crypt-torch-2", "kind": "torch", "position": { "x": 1, "y": 18, "level": 0 }, "wall": "W" },
+    { "id": "crypt-banner", "kind": "banner", "position": { "x": 1, "y": 16, "level": 0 }, "wall": "W" },
 
-    { "id": "mage-torch-1", "kind": "torch", "position": { "x": 17, "y": 13 }, "wall": "N" },
-    { "id": "mage-torch-2", "kind": "torch", "position": { "x": 11, "y": 18 }, "wall": "W" },
-    { "id": "mage-banner", "kind": "banner", "position": { "x": 11, "y": 14 }, "wall": "W" }
+    { "id": "mage-torch-1", "kind": "torch", "position": { "x": 17, "y": 13, "level": 0 }, "wall": "N" },
+    { "id": "mage-torch-2", "kind": "torch", "position": { "x": 11, "y": 18, "level": 0 }, "wall": "W" },
+    { "id": "mage-banner", "kind": "banner", "position": { "x": 11, "y": 14, "level": 0 }, "wall": "W" },
+
+    { "id": "ossuary-torch-1", "kind": "torch", "position": { "x": 3, "y": 16, "level": -1 }, "wall": "W" },
+    { "id": "ossuary-torch-2", "kind": "torch", "position": { "x": 5, "y": 14, "level": -1 }, "wall": "N" },
+    { "id": "ossuary-niche-1", "kind": "skullNiche", "position": { "x": 7, "y": 14, "level": -1 }, "wall": "N" },
+    { "id": "ossuary-niche-2", "kind": "skullNiche", "position": { "x": 3, "y": 18, "level": -1 }, "wall": "W" },
+
+    { "id": "observatory-torch-1", "kind": "torch", "position": { "x": 13, "y": 14, "level": 1 }, "wall": "W" },
+    { "id": "observatory-torch-2", "kind": "torch", "position": { "x": 17, "y": 13, "level": 1 }, "wall": "N" },
+    { "id": "observatory-banner", "kind": "banner", "position": { "x": 13, "y": 16, "level": 1 }, "wall": "W" }
   ],
   "monsters": [
-    { "id": "monster-1", "kind": "skeletonWarrior", "name": "Grabwächter", "position": { "x": 4, "y": 18 }, "facing": "N" },
-    { "id": "monster-2", "kind": "skeletonMinion", "name": "Knochenknecht", "position": { "x": 7, "y": 15 }, "facing": "W" },
-    { "id": "monster-3", "kind": "skeletonMage", "name": "Aschemagier", "position": { "x": 16, "y": 17 }, "facing": "W" }
+    { "id": "monster-1", "kind": "skeletonWarrior", "name": "Grabwächter", "position": { "x": 4, "y": 18, "level": 0 }, "facing": "N" },
+    { "id": "monster-2", "kind": "skeletonMinion", "name": "Knochenknecht", "position": { "x": 7, "y": 15, "level": 0 }, "facing": "W" },
+    { "id": "monster-3", "kind": "skeletonMage", "name": "Aschemagier", "position": { "x": 16, "y": 17, "level": 0 }, "facing": "W" },
+    { "id": "monster-4", "kind": "skeletonWarrior", "name": "Knochenfürst", "position": { "x": 4, "y": 16, "level": -1 }, "facing": "E" },
+    { "id": "monster-5", "kind": "skeletonMage", "name": "Sternenleser", "position": { "x": 15, "y": 16, "level": 1 }, "facing": "E" }
   ]
 }

@@ -588,13 +588,30 @@ Nicht nur ein technischer Bewegungs-Test, sondern ein kleiner **Vertical Slice**
 
 ### Definition
 
-> Zwei Spieler betreten über den Browser einen kleinen, visuell ansprechenden 3D-Dungeon, bewegen ihre Figuren abwechselnd über ein Raster, öffnen Türen und entdecken neue Räume und Gegner.
+> Zwei Spieler betreten über den Browser einen kleinen, visuell ansprechenden 3D-Dungeon, bewegen ihre Figuren abwechselnd über ein Raster, öffnen Türen, erkunden Treppen und entdecken neue Räume und Gegner auf drei Ebenen.
+
+Ebenen und Treppen erweitern den **Vertical Slice**. Das gemeinsame Spielziel lautet:
+**alle Bereiche betreten** – jeder Bereich muss aufgedeckt und von mindestens einem
+Helden betreten worden sein.
 
 ---
 
 ## 16. Karte des Prototyps
 
-Drei Räume und Verbindungsgänge:
+Sechs Bereiche (fünf Räume und ein T-förmiger Gang) auf drei Ebenen, entsprechend
+`docs/game-mechanics.md`, Abschnitt M8:
+
+| Ebene | Bereiche |
+|---|---|
+| Obergeschoss (1) | Sternwarte über der Magierstube |
+| Eingangsebene (0) | Eingangshalle, Gang, Krypta, Magierstube |
+| Untergeschoss (−1) | Gebeinkammer unter der Krypta |
+
+Nur die Eingangshalle ist anfangs aufgedeckt. Türen verbinden die Bereiche der
+Eingangsebene; die Gruftstiege verbindet Krypta und Gebeinkammer, die Turmtreppe
+Magierstube und Sternwarte. Die Ebenen liegen räumlich übereinander.
+
+Verbindungen (schematisch):
 
 ```text
 ┌────────────────┐
@@ -607,8 +624,13 @@ Drei Räume und Verbindungsgänge:
     ┌───┴──────┐
     │          │
 ┌───┴────┐ ┌───┴──────┐
-│ Krypta │ │ Magierraum│
+│ Krypta │ │Magierstube│
 └────────┘ └───────────┘
+    │             │
+ Gruftstiege   Turmtreppe
+    ↓             ↑
+Gebeinkammer   Sternwarte
+ Ebene −1      Ebene 1
 ```
 
 ### Eingangshalle
@@ -623,7 +645,7 @@ Mögliche Elemente:
 - Statue
 - unterschiedliche Bodenplatten
 
-### Magierraum
+### Magierstube
 
 Mögliche Elemente:
 
@@ -647,6 +669,18 @@ Mögliche Elemente:
 - Gegner
 - leichter Nebel
 - düsteres Licht
+
+### Gebeinkammer
+
+- Knochenhaufen und Schädelnischen als markante Elemente
+- Sarkophag, Kerzen und Knochenfürst
+- grünliches Grablicht und Bodennebel wie in der Krypta
+
+### Sternwarte
+
+- Teleskop und leuchtende Sternenkarte am Boden als markante Elemente
+- Bücherregal, Truhe und Sternenleser
+- farbiges Sternenlicht
 
 ---
 
@@ -689,6 +723,26 @@ Der minimale Spielfluss:
 16. Spieler beendet Zug
 17. Spieler 2 ist an der Reihe
 
+Pro Zug stehen **8 Bewegungspunkte (BP) und 1 Aktion** zur Verfügung; Bewegung und
+Aktion sind frei kombinierbar. Eine Treppe wird von einem ihrer Anliegerfelder aus
+erkundet: **1 Aktion** deckt den Bereich am anderen Ende auf; mit einem verbleibenden
+BP steigt der Held im selben Klick hinüber, sonst bleibt er stehen. Jeder Wechsel
+zwischen Fuß- und Austrittsfeld kostet in beide Richtungen **1 BP**. Die Treppe selbst ist kein Spielfeld. Restbewegung darf sofort genutzt werden.
+
+Fuß- und Austrittsfeld werden dauerhaft markiert, sobald sie aufgedeckt sind;
+die Pfadvorschau kennzeichnet den Ebenenwechsel. Beim Wechsel erscheint kurz der
+Ebenenname: **Obergeschoss**, **Eingangsebene** oder **Untergeschoss**.
+
+Der Laufzug zur Gruftstiege bleibt erhalten. Betritt erstmals ein Held einen Bereich
+mit dem bekannten Ende einer noch unerkundeten Treppe, folgt einmalig ein Vorzeichen:
+Die Kamera schaut kurz zur Treppe, ein Effekt und eine kurze Textzeile erscheinen.
+Bei einer abwärts führenden Treppe steigt ein kalter, graublauer Hauch aus dem
+Treppenloch; bei einer aufwärts führenden Treppe fallen Sternenfunken herab.
+
+Aufdecken allein erfüllt das Spielziel nicht: Jeder der sechs Bereiche muss auch
+von mindestens einem Helden betreten werden. Die Eingangshalle zählt durch die
+Startpositionen bereits als betreten.
+
 Noch nicht erforderlich:
 
 - vollständiges Kampfsystem
@@ -722,6 +776,10 @@ Gegner werden sichtbar
 
 Dieses "Entdecken" soll bereits im Prototyp emotional funktionieren.
 
+Das Erkunden einer Treppe deckt ebenso den verbundenen Bereich samt Gegnern auf.
+Aufdecken und Betreten sind getrennte Schritte; aufgedeckte Bereiche bleiben für
+beide Spieler sichtbar. Vorzeichen geben einen Hinweis, ohne den Zielbereich aufzudecken.
+
 ---
 
 ## 20. Meilensteine
@@ -732,7 +790,8 @@ Dieses "Entdecken" soll bereits im Prototyp emotional funktionieren.
 Browser starten
 → Babylon.js-Szene
 → isometrische Kamera
-→ drei Räume
+→ sechs Bereiche auf drei Ebenen
+→ Treppen und lesbare Ebenenansicht
 → Assets
 → Licht
 ```
@@ -745,6 +804,8 @@ Raster
 → Feld auswählen
 → gültige Felder anzeigen
 → Bewegung animieren
+→ Treppenwechsel für 1 BP
+→ Anliegerfelder und Ebenenwechsel markieren
 ```
 
 ### P2 – Netzwerk
@@ -765,6 +826,9 @@ Tür
 → Tür öffnen
 → Raum aufdecken
 → Gegner sichtbar
+→ Treppe erkunden für 1 Aktion
+→ Vorzeichen und Ebenenwechsel inszenieren
+→ alle Bereiche aufdecken und betreten
 ```
 
 ---
@@ -783,6 +847,9 @@ Der Prototyp gilt als erfolgreich, wenn:
 - ein Raum zunächst unsichtbar ist
 - dieser Raum nach dem Öffnen sichtbar wird
 - mindestens ein Gegner dabei aufgedeckt wird
+- Treppen Bereiche aufdecken und Helden zwischen Ebenen wechseln können
+- der Sieg erst nach dem Aufdecken und Betreten aller sechs Bereiche erscheint
+- Spieler Aufdecken, Kosten und Ebenenwechsel ohne Erklärung von außen verstehen
 - die Darstellung bereits attraktiv genug ist, um das spätere Spielgefühl zu vermitteln
 
 ---
@@ -934,12 +1001,12 @@ Empfohlene Reihenfolge:
 3. WebSocket-Protokoll definieren
 4. erste Karte als statisches JSON erstellen
 5. Babylon.js-Szene mit Kamera aufsetzen
-6. drei Räume rendern
+6. sechs Bereiche auf drei Ebenen mit Treppen rendern
 7. eine Figur platzieren
 8. Picking + Rasterbewegung
 9. Server anbinden
 10. zweiten Browser synchronisieren
-11. Tür und Raum-Aufdeckung implementieren
+11. Türen, Treppen, Aufdecken und das Spielziel „alle Bereiche betreten“ implementieren
 12. erste Quaternius-Assets integrieren
 
 ---
@@ -962,7 +1029,9 @@ Tech:
 - game-core independent of Babylon.js
 
 Prototype:
-- 3 connected dungeon rooms
+- 6 connected areas: 5 rooms and 1 T-shaped corridor on 3 stacked levels
+- entrance level (0): entrance hall, corridor, crypt, mage room
+- basement (-1): bone chamber below the crypt; upper floor (1): observatory above the mage room
 - isometric 3D camera
 - colorful stylized fantasy graphics
 - 2 players
@@ -975,6 +1044,17 @@ Prototype:
 - doors
 - hidden room
 - opening a door reveals room + monster
+- 8 movement points and 1 action per turn; movement may continue after the action
+- exploring stairs costs 1 action and reveals the connected area; with a movement point left the hero takes the stairs in the same click (1 MP), otherwise stays
+- explored stairs connect their endpoint tiles for 1 movement point in either direction; stairs are not tiles
+- mark revealed stair endpoint tiles and level changes in the path preview
+- briefly show the level name when changing levels
+- first entry into an area with the known end of unexplored stairs triggers a brief camera cue, effect and text
+- downward stairs: cold gray-blue mist rises; upward stairs: star sparks fall
+- bone chamber signature props: bone pile and skull niches
+- observatory signature props: telescope and glowing floor star chart
+- cooperative goal: reveal every area and have at least one hero enter each area
+- success: players understand revealing areas, costs and level changes without external explanation
 - initially use CC0 assets, preferably Quaternius
 - dungeon layout is data-driven, not hardcoded into 3D meshes
 

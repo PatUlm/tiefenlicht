@@ -4,11 +4,14 @@ import { parseClientMessage, sanitizePlayerName } from './protocol.ts';
 
 describe('parseClientMessage', () => {
   it('accepts well-formed messages', () => {
-    expect(parseClientMessage('{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":7,"y":4},"requestId":"r1"}')).toEqual({
+    expect(parseClientMessage('{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":7,"y":4,"level":0},"requestId":"r1"}')).toEqual({
       type: 'MOVE_CHARACTER',
       characterId: 'hero-1',
-      target: { x: 7, y: 4 },
+      target: { x: 7, y: 4, level: 0 },
       requestId: 'r1',
+    });
+    expect(parseClientMessage('{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":8,"y":19,"level":-1}}')).toMatchObject({
+      target: { x: 8, y: 19, level: -1 },
     });
     expect(parseClientMessage('{"type":"JOIN_GAME","gameId":"abcde","playerName":"  Ana  "}')).toEqual({
       type: 'JOIN_GAME',
@@ -24,6 +27,11 @@ describe('parseClientMessage', () => {
       characterId: 'hero-1',
       doorId: 'door-1',
       requestId: 'r2',
+    });
+    expect(parseClientMessage('{"type":"EXPLORE_STAIRS","characterId":"hero-1","stairsId":"stairs-1"}')).toEqual({
+      type: 'EXPLORE_STAIRS',
+      characterId: 'hero-1',
+      stairsId: 'stairs-1',
     });
     expect(parseClientMessage('{"type":"RESUME_SESSION","gameId":"abcde","playerToken":"0f8c-11aa"}')).toEqual({
       type: 'RESUME_SESSION',
@@ -54,13 +62,18 @@ describe('parseClientMessage', () => {
       'null',
       '[]',
       '{"type":"NOPE"}',
-      '{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":1.5,"y":4}}',
-      '{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":"1","y":4}}',
-      '{"type":"MOVE_CHARACTER","characterId":"hero 1","target":{"x":1,"y":4}}',
+      '{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":1.5,"y":4,"level":0}}',
+      '{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":"1","y":4,"level":0}}',
+      '{"type":"MOVE_CHARACTER","characterId":"hero 1","target":{"x":1,"y":4,"level":0}}',
       '{"type":"MOVE_CHARACTER","characterId":"hero-1"}',
-      '{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":10000,"y":4}}',
-      '{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":1,"y":-10000}}',
+      '{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":10000,"y":4,"level":0}}',
+      '{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":1,"y":-10000,"level":0}}',
+      '{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":1,"y":4}}',
+      '{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":1,"y":4,"level":0.5}}',
+      '{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":1,"y":4,"level":100}}',
       '{"type":"OPEN_DOOR","characterId":"hero-1","doorId":{}}',
+      '{"type":"EXPLORE_STAIRS","characterId":"hero-1"}',
+      '{"type":"EXPLORE_STAIRS","characterId":"hero-1","stairsId":"a b"}',
       '{"type":"CREATE_GAME","playerName":"   "}',
       '{"type":"RESUME_SESSION","gameId":"ABCDE"}',
     ];
@@ -80,8 +93,8 @@ describe('parseClientMessage', () => {
 
   it('strips unknown fields from nested positions', () => {
     expect(
-      parseClientMessage('{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":1,"y":2,"evil":"x"},"extra":1}'),
-    ).toEqual({ type: 'MOVE_CHARACTER', characterId: 'hero-1', target: { x: 1, y: 2 } });
+      parseClientMessage('{"type":"MOVE_CHARACTER","characterId":"hero-1","target":{"x":1,"y":2,"level":0,"evil":"x"},"extra":1}'),
+    ).toEqual({ type: 'MOVE_CHARACTER', characterId: 'hero-1', target: { x: 1, y: 2, level: 0 } });
   });
 });
 

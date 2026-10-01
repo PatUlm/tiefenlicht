@@ -1,17 +1,27 @@
 import { Vector3 } from '@babylonjs/core';
 import type { Direction, Position } from '@dungeon/shared';
 
+export { OPPOSITE } from '@dungeon/shared';
+
 /** World units per grid tile (KayKit dungeon modules are 4×4). */
 export const CELL = 4;
 export const WALL_HEIGHT = 4;
+/** Storeys are stacked one wall height apart, so a flight rises 45° over one tile. */
+export const LEVEL_HEIGHT = WALL_HEIGHT;
+
+/** World height of the floor of a level. */
+export function levelY(level: number): number {
+  return level * LEVEL_HEIGHT;
+}
 
 // Right-handed scene: +X = east, +Z = south, +Y = up.
 export function tileCenter(p: Position, y = 0): Vector3 {
-  return new Vector3(p.x * CELL, y, p.y * CELL);
+  return new Vector3(p.x * CELL, levelY(p.level) + y, p.y * CELL);
 }
 
-export function worldToTile(point: Vector3): Position {
-  return { x: Math.round(point.x / CELL), y: Math.round(point.z / CELL) };
+/** Tile under a world point on the floor of the given level. */
+export function worldToTile(point: Vector3, level: number): Position {
+  return { x: Math.round(point.x / CELL), y: Math.round(point.z / CELL), level };
 }
 
 /** Yaw that turns a glTF model (facing +Z) towards the given grid direction. */
@@ -31,8 +41,6 @@ export function facingAngle(dir: Direction): number {
 export function yawTowards(from: Vector3, to: Vector3): number {
   return Math.atan2(to.x - from.x, to.z - from.z);
 }
-
-export const OPPOSITE: Readonly<Record<Direction, Direction>> = { N: 'S', S: 'N', E: 'W', W: 'E' };
 
 /** Deterministic pseudo-random value in [0,1) for a tile (stable visual variation). */
 export function tileNoise(x: number, y: number, salt = 0): number {

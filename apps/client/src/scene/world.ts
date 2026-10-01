@@ -14,7 +14,7 @@ import {
   Vector3,
   type AbstractMesh,
 } from '@babylonjs/core';
-import { CELL } from './grid.ts';
+import { CELL, levelY } from './grid.ts';
 import { lerp } from './tween.ts';
 
 const BETA = 0.93;
@@ -23,7 +23,8 @@ const MAX_RADIUS = 110;
 
 /**
  * Engine, scene, isometric-style camera, global lighting and post-processing.
- * The camera snaps between four 90° views (Q/E) so the board stays readable.
+ * The camera snaps between four 90° views (Q/E) so the board stays readable,
+ * and looks at one storey at a time (the focus level).
  */
 export class World {
   readonly engine: Engine;
@@ -33,8 +34,10 @@ export class World {
   readonly shadows: ShadowGenerator;
   readonly hemi: HemisphericLight;
   readonly onViewRotated = new Observable<void>();
+  readonly onLevelChanged = new Observable<number>();
 
   private viewIndex = 0;
+  private level = 0;
   private desiredAlpha: number;
   private desiredRadius = 56;
   private readonly desiredTarget = new Vector3();
@@ -128,9 +131,21 @@ export class World {
     this.onViewRotated.notifyObservers();
   }
 
+  get focusLevel(): number {
+    return this.level;
+  }
+
+  /** Raises or lowers the camera to a storey; everything above it is hidden by its owners. */
+  setFocusLevel(level: number): void {
+    if (level === this.level) return;
+    this.level = level;
+    this.desiredTarget.y = levelY(level);
+    this.onLevelChanged.notifyObservers(level);
+  }
+
+  /** Centres the camera on a point (horizontally; the height follows the focus level). */
   focus(target: Vector3, instant = false): void {
-    this.desiredTarget.copyFrom(target);
-    this.desiredTarget.y = 0;
+    this.desiredTarget.set(target.x, levelY(this.level), target.z);
     if (instant) this.camera.target.copyFrom(this.desiredTarget);
   }
 
@@ -166,6 +181,6 @@ export class World {
     cam.radius = lerp(cam.radius, this.desiredRadius, k);
     cam.target.x = lerp(cam.target.x, this.desiredTarget.x, k);
     cam.target.z = lerp(cam.target.z, this.desiredTarget.z, k);
-    cam.target.y = 0;
+    cam.target.y = lerp(cam.target.y, this.desiredTarget.y, k);
   }
 }

@@ -80,8 +80,14 @@ export interface CharacterInstance {
   findNode(name: string): TransformNode | undefined;
 }
 
-/** Maximum lights a material considers (torches, crystals, candles …). */
-const MAX_LIGHTS = 12;
+/**
+ * Maximum lights a material considers. Babylon binds one uniform block per light
+ * plus two shared ones, and WebGL2 on ANGLE/D3D11 (Chrome on Windows) allows only
+ * 12 blocks per fragment shader: beyond that every lit material fails to compile.
+ */
+const MAX_LIGHTS = 8;
+/** Point lights (torches, candles, magic) on at once: all lights minus ambient and key light. */
+export const MAX_POINT_LIGHTS = MAX_LIGHTS - 2;
 
 /**
  * Loads all glTF assets once and hands out cheap copies. Materials are converted

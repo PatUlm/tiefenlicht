@@ -2,8 +2,9 @@
 
 Rundenbasiertes 3D-Dungeon-Brettspiel im Browser (Arbeitstitel „Tiefenlicht“), umgesetzt
 nach `dungeon-game-concept.md`. Zwei Spieler (Zwerg und Dunkelelf) erkunden gemeinsam
-„Das Gewölbe der Laternen“: Eingangshalle, Gang, Krypta und Magierstube. Türen öffnen
-verborgene Räume, dabei erwachen Gegner. Die Spielregeln stehen in
+„Das Gewölbe der Laternen“ auf drei Ebenen: Eingangshalle, Gang, Krypta und Magierstube,
+darunter die Gebeinkammer, darüber die Sternwarte. Türen und Treppen öffnen verborgene
+Räume, dabei erwachen Gegner. Die Spielregeln stehen in
 `docs/game-mechanics.md`.
 
 ## Schnellstart
@@ -43,20 +44,34 @@ Clients kehren dann automatisch in die Lobby zurück.
 3. Abwechselnd ziehen: **8 Bewegungspunkte und 1 Aktion** pro Zug.
    - Leuchtendes Feld anklicken: Die Figur läuft; der Pfad wird beim Überfahren angezeigt.
    - Steht der Held direkt an einer Tür, pulsiert sie golden. Ein Klick öffnet sie (Aktion).
+   - Treppen funktionieren wie Türen: Steht der Held vor einer Treppe oder an ihrem oberen
+     Ende (beide Felder tragen eine goldene Bodenmarkierung), pulsiert sie golden, und ein
+     Klick erkundet sie (Aktion) und nimmt den Held mit **einem** Schritt (1 BP) gleich auf
+     die andere Ebene; ohne Bewegungspunkt bleibt er stehen. Erkundete Treppen kosten pro
+     Durchgang 1 BP. Unerkundete Treppen kündigen
+     sich an: aus der Tiefe steigt kalter Hauch, von oben fallen Sternenfunken.
    - **Zug beenden** per Button oder Leertaste.
-4. Ziel: alle vier Bereiche entdecken. Danach läuft das Spiel weiter, damit ihr euch in
-   den neuen Räumen umsehen könnt. **Neues Spiel** setzt die Partie jederzeit für beide
+4. Ziel: alle sechs Bereiche entdecken **und betreten**. Danach läuft das Spiel weiter,
+   damit ihr euch in Ruhe umsehen könnt. **Neues Spiel** setzt die Partie jederzeit für beide
    zurück.
 
 | Steuerung | |
 |---|---|
-| Linksklick | Laufen / Tür öffnen |
+| Linksklick | Laufen / Tür öffnen / Treppe erkunden oder nehmen |
 | Ziehen (links/rechts) oder WASD/Pfeiltasten | Kamera schwenken |
 | Mausrad | Zoomen |
 | Q / E | Ansicht um 90° drehen (Wände zur Kamera werden automatisch abgesenkt) |
-| F | eigenen Helden fokussieren |
+| Bild↑ / Bild↓ | Ebene wechseln (auch über die Ebenen-Buttons der Minimap) |
+| F | eigenen Helden fokussieren (inkl. seiner Ebene) |
 | G | Raster ein/aus |
 | Leertaste | Zug beenden |
+
+Die Kamera zeigt immer eine **Fokus-Ebene**: Sie folgt dem Helden am Zug und jeder
+laufenden Figur, auch über Treppen; beim Wechsel blendet sie kurz den Namen ein
+(Obergeschoss, Eingangsebene, Untergeschoss). Ebenen darüber sind ausgeblendet, Ebenen
+darunter abgedunkelt und mit abgesenkten Wänden sichtbar. Rechts oben zeigt die **Minimap** alle
+entdeckten Ebenen als gestapeltes Drahtgittermodell mit Türen, Treppen und Figuren. Sie
+dreht mit der Kamera mit. Darunter steht die **FPS-Anzeige** (grün ab 50, gelb ab 30).
 
 Ein Neuladen der Seite setzt das Spiel fort. Schließt ein Spieler den Tab, kann ein neuer
 Tab über den Einladungslink den verwaisten Platz übernehmen.

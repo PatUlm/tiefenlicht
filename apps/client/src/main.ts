@@ -35,6 +35,7 @@ async function main(): Promise<void> {
   const hud = new Hud(ui, {
     onEndTurn: () => controller.endTurn(),
     onRestart: () => controller.restart(),
+    onSelectLevel: (level) => controller.selectLevel(level),
   });
   const lobby = new LobbyUI(ui, {
     onCreate: (name) => controller.createGame(name),
@@ -42,6 +43,7 @@ async function main(): Promise<void> {
   });
   controller = new GameController({ world, assets, effects, dungeon, overlay, hud, lobby, labels });
   controller.start();
+  window.setInterval(() => hud.setFps(world.engine.getFps()), 500);
 
   if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) exposeDebugHandle(world, controller);
 }
@@ -60,7 +62,10 @@ function exposeDebugHandle(world: World, controller: GameController): void {
     const s = engine.getHardwareScalingLevel();
     return { x: p.x * s, y: p.y * s };
   };
-  const focusTile = (x: number, y: number) => world.focus(new Vector3(x * 4, 0, y * 4));
+  const focusTile = (x: number, y: number, level = world.focusLevel) => {
+    world.setFocusLevel(level);
+    world.focus(new Vector3(x * 4, 0, y * 4));
+  };
   (window as unknown as { __dungeon: unknown }).__dungeon = { world, controller, toScreen, focusTile };
 }
 

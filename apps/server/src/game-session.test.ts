@@ -48,7 +48,7 @@ describe('lobby flow', () => {
 
   it('never sends a token to anyone but its owner', () => {
     const { a, b, tokenA, tokenB } = twoPlayerGame();
-    b.send({ type: 'MOVE_CHARACTER', characterId: 'hero-2', target: { x: 10, y: 2 } });
+    b.send({ type: 'MOVE_CHARACTER', characterId: 'hero-2', target: { x: 10, y: 2, level: 0 } });
     a.send({ type: 'END_TURN' });
     expect(JSON.stringify(b.conn.messages)).not.toContain(tokenA);
     expect(JSON.stringify(a.conn.messages)).not.toContain(tokenB);
@@ -78,10 +78,10 @@ describe('actions', () => {
     expect(a.conn.messages.at(-1)?.type).toBe('GAME_UPDATE');
     expect(b.conn.messages.length).toBe(bBefore + 1);
 
-    a.send({ type: 'MOVE_CHARACTER', characterId: 'hero-1', target: { x: 9, y: 4 } });
+    a.send({ type: 'MOVE_CHARACTER', characterId: 'hero-1', target: { x: 9, y: 4, level: 0 } });
     for (const c of [a, b]) {
       expect(c.conn.last('GAME_UPDATE')?.events).toEqual([
-        { type: 'CHARACTER_MOVED', characterId: 'hero-1', path: [2, 3, 4].map((y) => ({ x: 9, y })) },
+        { type: 'CHARACTER_MOVED', characterId: 'hero-1', path: [2, 3, 4].map((y) => ({ x: 9, y, level: 0 })) },
       ]);
     }
   });
@@ -137,7 +137,7 @@ describe('reconnect and takeover (M9)', () => {
 describe('review 03 hardening', () => {
   it('echoes the requestId only to the originating connection', () => {
     const { a, b } = twoPlayerGame();
-    a.send({ type: 'MOVE_CHARACTER', characterId: 'hero-1', target: { x: 9, y: 3 }, requestId: 'r7' });
+    a.send({ type: 'MOVE_CHARACTER', characterId: 'hero-1', target: { x: 9, y: 3, level: 0 }, requestId: 'r7' });
     expect(a.conn.last('GAME_UPDATE')?.requestId).toBe('r7');
     expect(b.conn.last('GAME_UPDATE')?.requestId).toBeUndefined();
   });
@@ -168,12 +168,12 @@ describe('review 03 hardening', () => {
 
   it('restarts for both players via the handler', () => {
     const { a, b } = twoPlayerGame();
-    a.send({ type: 'MOVE_CHARACTER', characterId: 'hero-1', target: { x: 9, y: 3 } });
+    a.send({ type: 'MOVE_CHARACTER', characterId: 'hero-1', target: { x: 9, y: 3, level: 0 } });
     b.send({ type: 'RESTART_GAME' });
     for (const c of [a, b]) {
       const update = c.conn.last('GAME_UPDATE')!;
       expect(update.events[0]).toEqual({ type: 'GAME_RESTARTED', byPlayerId: 'player-2' });
-      expect(update.view.heroes[0]?.position).toEqual({ x: 9, y: 1 });
+      expect(update.view.heroes[0]?.position).toEqual({ x: 9, y: 1, level: 0 });
     }
   });
 

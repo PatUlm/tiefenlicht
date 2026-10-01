@@ -4,6 +4,8 @@
 export interface Position {
   readonly x: number;
   readonly y: number;
+  /** Storey of the dungeon; 0 is the entrance level, higher is up. */
+  readonly level: number;
 }
 
 // Enumerations are declared as `as const` arrays so the dungeon validator can check
@@ -22,6 +24,7 @@ export interface Rect {
 
 export type AreaId = string;
 export type DoorId = string;
+export type StairsId = string;
 export type PlayerId = string;
 export type CharacterId = string;
 
@@ -53,10 +56,13 @@ export const PROP_KIND_VALUES = [
   'cauldron',
   'crystal',
   'rubble',
+  'telescope',
+  'starChart',
+  'bonePile',
 ] as const;
 export type PropKind = (typeof PROP_KIND_VALUES)[number];
 
-export const WALL_DECOR_KIND_VALUES = ['torch', 'banner', 'shield'] as const;
+export const WALL_DECOR_KIND_VALUES = ['torch', 'banner', 'shield', 'skullNiche'] as const;
 export type WallDecorKind = (typeof WALL_DECOR_KIND_VALUES)[number];
 
 // ---------------------------------------------------------------------------
@@ -68,7 +74,9 @@ export interface AreaDefinition {
   readonly name: string;
   readonly kind: AreaKind;
   readonly theme: ThemeId;
-  /** Union of rectangles; must not overlap other areas. */
+  /** Storey all tiles of the area lie on. */
+  readonly level: number;
+  /** Union of rectangles; must not overlap other areas of the same level. */
   readonly rects: readonly Rect[];
   readonly initiallyRevealed: boolean;
 }
@@ -82,6 +90,20 @@ export interface DoorDefinition {
   /** One edge for a single door, two adjacent parallel edges for a double door. */
   readonly edges: readonly DoorEdge[];
   readonly style: DoorStyle;
+}
+
+/**
+ * A straight flight of stairs connecting two levels. The flight itself is no
+ * playing field: it occupies the tile between `bottom` and the landing tile
+ * (`stairsTop`), and one step leads from `bottom` straight to the landing.
+ */
+export interface StairsDefinition {
+  readonly id: StairsId;
+  readonly name: string;
+  /** Tile in front of the foot of the stairs, on the lower level. */
+  readonly bottom: Position;
+  /** Direction from `bottom` up the flight. */
+  readonly direction: Direction;
 }
 
 export interface PropDefinition {
@@ -118,7 +140,9 @@ export interface HeroStartDefinition {
   readonly facing: Direction;
 }
 
-export type VictoryCondition = { readonly type: 'revealAllAreas' };
+export const VICTORY_TYPE_VALUES = ['revealAllAreas', 'visitAllAreas'] as const;
+/** `revealAllAreas`: every area discovered. `visitAllAreas`: every area discovered and entered by a hero. */
+export type VictoryCondition = { readonly type: (typeof VICTORY_TYPE_VALUES)[number] };
 
 export interface RuleParameters {
   readonly movementPerTurn: number;
@@ -132,6 +156,7 @@ export interface DungeonDefinition {
   readonly height: number;
   readonly areas: readonly AreaDefinition[];
   readonly doors: readonly DoorDefinition[];
+  readonly stairs: readonly StairsDefinition[];
   readonly props: readonly PropDefinition[];
   readonly wallDecor: readonly WallDecorDefinition[];
   readonly monsters: readonly MonsterDefinition[];
@@ -152,6 +177,7 @@ export interface AreaView {
   readonly name: string;
   readonly kind: AreaKind;
   readonly theme: ThemeId;
+  readonly level: number;
   readonly tiles: readonly Position[];
 }
 
@@ -161,6 +187,17 @@ export interface DoorView {
   readonly edges: readonly DoorEdge[];
   readonly style: DoorStyle;
   readonly open: boolean;
+}
+
+export interface StairsView {
+  readonly id: StairsId;
+  readonly name: string;
+  readonly bottom: Position;
+  readonly direction: Direction;
+  /** Landing tile on the upper level (derived, see `stairsTop`). */
+  readonly top: Position;
+  /** Explored stairs are passable; exploring reveals the area at the far end. */
+  readonly explored: boolean;
 }
 
 export interface HeroView {
@@ -199,6 +236,8 @@ export interface TurnView {
 export interface ObjectiveView {
   readonly type: VictoryCondition['type'];
   readonly revealedAreas: number;
+  /** Areas a hero has stood in at least once (start area included). */
+  readonly visitedAreas: number;
   readonly totalAreas: number;
   readonly completed: boolean;
 }
@@ -206,12 +245,15 @@ export interface ObjectiveView {
 export interface GameView {
   readonly gameId: string;
   readonly version: number;
+  /** Number of restarts so far: tells a restarted game apart from a reconnect. */
+  readonly restarts: number;
   readonly phase: GamePhase;
   readonly dungeonName: string;
   readonly width: number;
   readonly height: number;
   readonly areas: readonly AreaView[];
   readonly doors: readonly DoorView[];
+  readonly stairs: readonly StairsView[];
   readonly props: readonly PropDefinition[];
   readonly wallDecor: readonly WallDecorDefinition[];
   readonly monsters: readonly MonsterView[];

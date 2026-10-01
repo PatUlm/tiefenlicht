@@ -17,8 +17,12 @@ bzw. `[R3: …]` markiert. Alle drei Reviews: keine Blocker; alle Major-Findings
 
 ## M1 Spielbrett
 
-- Das Brett ist ein logisches Raster aus quadratischen Feldern `(x, y)`.
-  `x` wächst nach Osten, `y` nach Süden.
+- Das Brett ist ein logisches Raster aus quadratischen Feldern `(x, y, level)`.
+  `x` wächst nach Osten, `y` nach Süden, `level` ist die Ebene (0 = Eingangsebene,
+  höher = weiter oben, negativ = Untergeschosse).
+- **Ebenen** sind echt gestapelt: Ein Bereich liegt vollständig auf einer Ebene und darf
+  Bereiche anderer Ebenen in x/y überdecken. Felder verschiedener Ebenen sind nie
+  benachbart; Ebenen verbinden ausschließlich Treppen.
 - Jedes **existierende** Feld gehört genau zu **einem Bereich** (`Area`). Bereiche sind
   Räume (`room`) oder Gänge (`corridor`). Blockieren ist eine Eigenschaft von Props und
   Monstern, nicht von Feldern. [R: m-1]
@@ -30,6 +34,14 @@ bzw. `[R3: …]` markiert. Alle drei Reviews: keine Blocker; alle Major-Findings
   zweier verschiedener Bereiche. Eine Tür mit zwei Kanten ist eine Doppeltür und wird
   als Einheit geöffnet. Zustand: `geschlossen` / `offen`. In v0.1 kein Schließen,
   Abschließen oder Aufbrechen. [R: M-1/A]
+- **Treppen** verbinden zwei übereinanderliegende Ebenen. Definiert durch Fußfeld
+  (`bottom`, untere Ebene) und Richtung: Der **Treppenlauf** belegt das nächste Feld und
+  ist **kein Spielfeld**; das **Austrittsfeld** liegt dahinter, eine Ebene höher. Auf der
+  oberen Ebene ist dasselbe Feld wie der Lauf das Treppenloch (ebenfalls kein Feld).
+  Fuß- und Austrittsfeld sind die Anliegerfelder der Treppe. Zum Lauf bzw. Treppenloch hin
+  liegt an diesen beiden Feldern keine Wand; die übrigen Kanten um den Lauf sind Wände,
+  um das Treppenloch eine niedrige Brüstung (nur Optik). Zustand: `unerkundet` /
+  `erkundet`.
 - **Props** (Säulen, Fässer, Sarkophag, Regale …) belegen ein oder mehrere Felder.
   Standard: blockierend. Nicht blockierend nur explizit (`blocking: false`).
   **Wanddeko** (Fackeln, Banner, Schilde) hängt an Kanten und hat keine Spielwirkung.
@@ -58,7 +70,8 @@ bzw. `[R3: …]` markiert. Alle drei Reviews: keine Blocker; alle Major-Findings
 - Ein Zug endet **nur explizit** durch „Zug beenden“. Nicht verbrauchte Punkte verfallen.
 - UI-Hinweis „nichts mehr möglich“ (`canStillAct`): `true` genau dann, wenn mit der
   Restbewegung noch ein Feld erreichbar ist **oder** die Aktion verfügbar ist und eine
-  geschlossene Tür von einem erreichbaren Feld (inkl. aktuellem) aus geöffnet werden kann.
+  geschlossene Tür bzw. unerkundete Treppe von einem erreichbaren Feld (inkl. aktuellem)
+  aus genutzt werden kann.
   Sonst wird „Zug beenden“ hervorgehoben. Keine Server-Wirkung. [R: m-7]
 
 ## M4 Bewegung
@@ -72,38 +85,53 @@ bzw. `[R3: …]` markiert. Alle drei Reviews: keine Blocker; alle Major-Findings
      `NOT_ENOUGH_MOVEMENT`.
 - Ein Schritt A→B ist erlaubt, wenn B entdeckt ist, kein blockierendes Prop und kein
   Monster trägt und die Kante A–B weder Wand noch geschlossene Tür ist.
+- **Treppe:** Bei einer erkundeten Treppe führt **ein** Schritt (1 Punkt) vom Fußfeld
+  direkt aufs Austrittsfeld und umgekehrt – wie durch eine Tür. Unerkundete Treppen sind
+  nicht begehbar.
 - **Verbündete** Helden dürfen durchquert werden, das **Zielfeld** muss frei sein.
 - Der Client schickt nur das **Zielfeld**. Der Server berechnet den kürzesten Pfad
-  (BFS, deterministische Nachbar-Reihenfolge N, O, S, W) und liefert ihn zurück.
+  (BFS, deterministische Nachbar-Reihenfolge N, O, S, W, danach Treppe) und liefert ihn
+  zurück.
 - Der Client nutzt dieselbe `game-core`-Funktion für Hervorhebung und Pfadvorschau;
   maßgeblich ist ausschließlich die Server-Prüfung.
 
-## M5 Aktion „Tür öffnen“
+## M5 Aktionen „Tür öffnen“ und „Treppe erkunden“
 
 - Voraussetzungen: Spieler ist am Zug, Figur gehört ihm, Tür ist geschlossen, Figur steht
   auf einem Feld, das an **eine** der Türkanten grenzt, Aktion noch verfügbar.
 - Effekt: Tür wird dauerhaft offen, Aktion verbraucht. Alle an die Tür grenzenden
   Bereiche gelten als **entdeckt**.
-- Danach darf die Restbewegung genutzt werden, auch durch die neue Tür.
-- Kein automatisches Hinlaufen zur Tür in v0.1; die UI zeigt, ob die Tür nutzbar ist.
+- **Treppe erkunden** (`EXPLORE_STAIRS`) funktioniert gleich: Treppe ist unerkundet, Figur
+  steht auf Fuß- **oder** Austrittsfeld, Aktion noch verfügbar. Effekt: Treppe dauerhaft
+  erkundet (begehbar), Aktion verbraucht, die Bereiche an beiden Enden gelten als
+  entdeckt. Ist noch **mindestens 1 BP** übrig und das andere Ende frei, nimmt die Figur
+  die Treppe sofort (1 BP) und steht danach am anderen Ende – ein Klick genügt;
+  Ereignisse `STAIRS_EXPLORED`, `AREA_REVEALED`, `CHARACTER_MOVED` (ggf. `GAME_WON`).
+  Ohne BP bleibt sie stehen. Die Figur blickt danach den Lauf entlang. Ablehnungen:
+  `UNKNOWN_STAIRS`, `STAIRS_ALREADY_EXPLORED`, `STAIRS_NOT_ADJACENT`, `NO_ACTION_LEFT`.
+- Danach darf die Restbewegung genutzt werden, auch durch die neue Tür bzw. über die Treppe.
+- Kein automatisches Hinlaufen zur Tür oder Treppe in v0.1; die UI zeigt, ob sie nutzbar ist.
 
 ## M6 Sichtbarkeit / Fog of War
 
 - Sichtbarkeit ist **bereichsbasiert** und für alle Spieler gemeinsam (kooperativ).
   Bewusste Vereinfachung statt Sichtlinienregel. [R: m-2]
 - Initial entdeckt: nur die Eingangshalle. Ein Bereich wird entdeckt, sobald eine an ihn
-  grenzende Tür geöffnet wird. Aufdecken ist endgültig.
+  grenzende Tür geöffnet oder eine an ihm endende Treppe erkundet wird. Aufdecken ist
+  endgültig.
 - **Der Server filtert den Zustand**: Clients erhalten nur Felder, Props, Wanddeko und
-  Monster entdeckter Bereiche sowie Türen, die an mindestens einen entdeckten Bereich
-  grenzen. Zusätzlich [R: m-3]:
+  Monster entdeckter Bereiche sowie Türen und Treppen, die an mindestens einen entdeckten
+  Bereich grenzen. Zusätzlich [R: m-3]:
   - Das Karten-JSON wird **nie** vom Client importiert. Der Subpfad
     `@dungeon/game-core/content` ist nur unter der Export-Condition `node` definiert; ein
     Browser-Build (Vite) kann ihn nicht auflösen und bricht ab. [R2: m-1]
   - Türen tragen **neutrale IDs und Namen** (`door-1`, „Eisentür“), keinen Hinweis auf den
-    Bereich dahinter. Der Türstil ist ein bewusster Teaser.
+    Bereich dahinter. Der Türstil ist ein bewusster Teaser. Für Treppen gilt dasselbe
+    (`stairs-1`, „Turmtreppe“); ihr Austrittsfeld verrät – wie eine Türkante – nur die
+    Koordinate des ersten Feldes dahinter.
   - Ablehnungscodes unterscheiden nicht zwischen „verborgen“ und „existiert nicht“.
 - **Zulässige Metadaten** (bewusst akzeptiert, sie verraten nur den Umfang, nicht den
-  Inhalt) [R2: m-8]: `objective.totalAreas` (Fortschrittsanzeige „2/4 entdeckt“),
+  Inhalt) [R2: m-8]: `objective.totalAreas` (Fortschrittsanzeige „2/6 entdeckt“),
   fortlaufende Monster-IDs (Lücken deuten weitere Monster an) sowie `width`/`height` der
   Karte (Kamera-Begrenzung).
 - Beim Aufdecken erhält der Client `AREA_REVEALED` und inszeniert:
@@ -111,11 +139,15 @@ bzw. `[R3: …]` markiert. Alle drei Reviews: keine Blocker; alle Major-Findings
 
 ## M7 Spielziel (minimal, nicht blockierend) [R: M-2, m-5]
 
-- Datengetriebene Siegbedingung, v0.1 nur ein Typ: `revealAllAreas`.
-- Beim ersten Erreichen sendet der Server einmalig `GAME_WON`; die Clients zeigen
-  „Gewölbe erkundet“ nach der Aufdeck-Inszenierung. **Das Spiel läuft weiter**:
-  Bewegen und Zug beenden bleiben möglich, damit die zuletzt entdeckten Räume betreten
-  werden können.
+- Datengetriebene Siegbedingung, zwei Typen:
+  - `revealAllAreas`: alle Bereiche entdeckt.
+  - `visitAllAreas` (v0.1-Karte): alle Bereiche entdeckt **und** von mindestens einem
+    Helden betreten. Als betreten zählen die Startbereiche sowie jedes Feld eines
+    Bewegungspfads, auch beim Durchqueren. Der Zustand führt dazu `visitedAreas`; die
+    Ansicht zeigt den Zähler `objective.visitedAreas`.
+- Beim ersten Erreichen sendet der Server einmalig `GAME_WON` (nach `AREA_REVEALED` bzw.
+  `CHARACTER_MOVED`); die Clients zeigen „Gewölbe erkundet“ nach der Inszenierung.
+  **Das Spiel läuft weiter**: Bewegen und Zug beenden bleiben möglich.
 - **Neues Spiel** (`RESTART_GAME`): jeder der beiden Spieler jederzeit, solange die Partie
   läuft (UI mit Bestätigung). In der Wartephase (`waiting`) wird es mit `GAME_NOT_RUNNING`
   abgelehnt, weil es dort nichts zurückzusetzen gibt. [R2: m-13]
@@ -125,14 +157,16 @@ bzw. `[R3: …]` markiert. Alle drei Reviews: keine Blocker; alle Major-Findings
 
 ## M8 Karte v0.1
 
-Koordinaten inklusive. Raster 20 × 20.
+Koordinaten inklusive, Ebene als dritte Koordinate. Raster 20 × 20, drei Ebenen (−1, 0, 1).
 
-| Bereich | Typ | Felder | Initial |
-|---|---|---|---|
-| Eingangshalle | room, Theme `hall` | x 5–14, y 0–6 | entdeckt |
-| Gang | corridor, Theme `corridor` | x 9–10, y 7–10 **und** x 3–16, y 11–12 (T-Form) | verborgen |
-| Krypta | room, Theme `crypt` | x 1–8, y 13–19 | verborgen |
-| Magierstube | room, Theme `mage` | x 11–18, y 13–19 | verborgen |
+| Bereich | Typ | Ebene | Felder | Initial |
+|---|---|---|---|---|
+| Eingangshalle | room, Theme `hall` | 0 | x 5–14, y 0–6 | entdeckt |
+| Gang | corridor, Theme `corridor` | 0 | x 9–10, y 7–10 **und** x 3–16, y 11–12 (T-Form) | verborgen |
+| Krypta | room, Theme `crypt` | 0 | x 1–8, y 13–19 **ohne** (8,18) (Treppenloch) | verborgen |
+| Magierstube | room, Theme `mage` | 0 | x 11–18, y 13–19 **ohne** (18,15) (Treppenlauf) | verborgen |
+| Gebeinkammer | room, Theme `crypt` | −1 | x 3–7, y 14–19 **und** (8,19) – unter der Krypta | verborgen |
+| Sternwarte | room, Theme `mage` | 1 | x 13–17, y 13–17 **und** (18,13), (18,14), (18,16), (18,17) – über der Magierstube | verborgen |
 
 Türen (neutrale IDs):
 
@@ -142,7 +176,14 @@ Türen (neutrale IDs):
 | door-2 | Eisentür | (4,12)–(4,13) | iron |
 | door-3 | Arkane Tür | (15,12)–(15,13) | arcane |
 
-Startfelder: Zwerg (9,1), Dunkelelf (10,1), beide Blick Süden.
+Treppen (neutrale IDs; Lauf jeweils auf dem Feld zwischen Fuß und Austritt):
+
+| ID | Name | Fuß (untere Ebene) | Richtung | Lauf | Austritt (obere Ebene) |
+|---|---|---|---|---|---|
+| stairs-1 | Turmtreppe | (18,16,0) Magierstube | N | (18,15) | (18,14,1) Sternwarte |
+| stairs-2 | Gruftstiege | (8,19,−1) Gebeinkammer | N | (8,18) | (8,17,0) Krypta |
+
+Startfelder: Zwerg (9,1), Dunkelelf (10,1), beide Ebene 0, Blick Süden.
 
 Props (alle blockierend, Größe 1×1 falls nicht angegeben):
 
@@ -158,14 +199,22 @@ Props (alle blockierend, Größe 1×1 falls nicht angegeben):
 | Magierstube | Bücherregale | (11,15), (11,16), (18,13) |
 | Magierstube | Tisch (2×1) | (14,16)–(15,16) |
 | Magierstube | Kessel / Kristall | (12,18) / (17,18) |
+| Gebeinkammer | Sarkophag (1×2) | (5,16)–(5,17) |
+| Gebeinkammer | Kerzen / Truhe / Geröll | (3,19) / (3,14) / (7,14) |
+| Gebeinkammer | Knochenhaufen | (7,16), (6,19) |
+| Sternwarte | Tisch (2×1) | (14,13)–(15,13) |
+| Sternwarte | Teleskop / Bücherregal / Truhe | (16,15) / (13,17) / (17,17) |
+| Sternwarte | Sternenkarte (2×2, **nicht** blockierend) | (13,15)–(14,16) |
 
-Monster (statisch, nicht auf und nicht neben Tür-Anliegerfeldern):
+Monster (statisch, nicht auf und nicht neben Anliegerfeldern von Türen und Treppen):
 
 | Bereich | Monster | Feld |
 |---|---|---|
 | Krypta | Grabwächter (Skelettkrieger) | (4,18) |
 | Krypta | Knochenknecht (Skelett) | (7,15) |
 | Magierstube | Aschemagier (Skelettmagier) | (16,17) |
+| Gebeinkammer | Knochenfürst (Skelettkrieger) | (4,16) |
+| Sternwarte | Sternenleser (Skelettmagier) | (15,16) |
 
 Wanddeko (ohne Spielwirkung; Feld und Wandseite, an der sie hängt) [R2: m-12]:
 
@@ -179,33 +228,50 @@ Wanddeko (ohne Spielwirkung; Feld und Wandseite, an der sie hängt) [R2: m-12]:
 | Krypta | Banner | (1,16) : W |
 | Magierstube | Fackeln | (17,13) : N, (11,18) : W |
 | Magierstube | Banner | (11,14) : W |
+| Gebeinkammer | Fackeln | (3,16) : W, (5,14) : N |
+| Gebeinkammer | Schädelnischen | (7,14) : N, (3,18) : W |
+| Sternwarte | Fackeln | (13,14) : W, (17,13) : N |
+| Sternwarte | Banner | (13,16) : W |
 
 Erwarteter Ablauf mit 8 BP [R: M-1/A]: Zug 1 Zwerg öffnet Doppeltür und geht bis (9,9);
 Zug 2 Elf bis (10,9); Zug 3 Zwerg öffnet Eisentür (genau 8 Schritte); Zug 4 Elf öffnet
 Arkane Tür (genau 8 Schritte). Jeder Spieler erlebt einen Monster-Reveal in Runde 2.
+Zug 5 Zwerg bis (7,14) (Laufzug; beim Betreten der Krypta erscheint das Vorzeichen der
+Gruftstiege); Zug 6 Elf geht zum Fuß der Turmtreppe (18,16) und erkundet sie
+(Sternwarte), wobei der letzte Punkt sie hinaufträgt; Zug 7 Zwerg geht aufs Austrittsfeld
+der Gruftstiege (8,17) und erkundet sie (Gebeinkammer), wobei er hinabsteigt – damit sind alle
+Bereiche betreten, Spielziel erreicht. In Runde 3 und 4 entdeckt und betritt so jeder
+Spieler eine neue Ebene.
 
 **Kartenvalidierung** (`validateDungeon`, per Test auf die v0.1-Karte und beim
 Serverstart) [R: M-3]. Sie wirft nie, sondern liefert eine Fehlerliste.
 
-1. **Form** [R2: m-2]: alle Listen vorhanden, Koordinaten, Rechtecke und Größen
-   ganzzahlig, Enum-Werte gültig (Richtung, Prop-, Monster-, Deko-Art, Türstil, Theme,
-   Bereichsart), `slot` in 0–1, Regelparameter ≥ 1. Bei Formfehlern endet die Prüfung hier.
-2. **Struktur und Spielbarkeit:** IDs eindeutig (auch Deko) · Bereiche disjunkt, nicht
-   leer, im Raster · Türkanten orthogonal, zwischen zwei verschiedenen Bereichen, pro Tür
-   genau ein Bereichspaar, höchstens zwei Kanten, bei zwei Kanten parallel und direkt
-   benachbart [R2: m-10] · kein Feld doppelt belegt (Prop, Monster, Start) · Props
-   vollständig in einem Bereich · Starts in initial entdeckten Bereichen und frei · alle
-   Tür-Anliegerfelder frei von blockierenden Props und Monstern · Monster auch nicht
-   neben Tür-Anliegerfeldern [R2: m-5] · pro Wandseite höchstens eine Deko, Deko hängt an
-   einer Wand · bei offenen Türen jeder Bereich von jedem Start erreichbar ·
-   Siegbedingung erfüllbar.
+1. **Form** [R2: m-2]: alle Listen vorhanden, Koordinaten (inkl. Ebene), Bereichsebenen,
+   Rechtecke und Größen ganzzahlig, Enum-Werte gültig (Richtung, Prop-, Monster-,
+   Deko-Art, Türstil, Theme, Bereichsart, Siegbedingung), `slot` in 0–1, Regelparameter ≥ 1. Ebenen und
+   Rastergröße in den Grenzen, die das Protokoll für Positionen akzeptiert (Ebene −99…99,
+   Breite/Höhe ≤ 10 000); Tür- und Treppen-IDs im Protokoll-ID-Format, da Clients sie in
+   Aktionen senden. Bei Formfehlern endet die Prüfung hier.
+2. **Struktur und Spielbarkeit:** IDs eindeutig (auch Deko, Treppen) · Bereiche je Ebene
+   disjunkt, nicht leer, im Raster · Türkanten orthogonal auf einer Ebene, zwischen zwei
+   verschiedenen Bereichen, pro Tür genau ein Bereichspaar, höchstens zwei Kanten, bei
+   zwei Kanten parallel und direkt benachbart [R2: m-10] · Treppen: Fuß- und
+   Austrittsfeld existieren in verschiedenen Bereichen, Lauf im Raster und weder Lauf
+   noch Treppenloch sind Felder, jedes Feld Ende höchstens einer Treppe · kein Feld
+   doppelt belegt (Prop, Monster, Start) · Props vollständig in einem Bereich · Starts in
+   initial entdeckten Bereichen und frei · alle Anliegerfelder von Türen und Treppen frei
+   von blockierenden Props und Monstern · Monster auch nicht neben diesen Anliegerfeldern
+   [R2: m-5] · pro Wandseite höchstens eine Deko, Deko hängt an einer Wand · bei offenen
+   Türen und erkundeten Treppen jeder Bereich von jedem Start erreichbar · Siegbedingung
+   erfüllbar (Türen und Treppen werden schrittweise genutzt, sobald erreichbar), aber nicht
+   schon zu Beginn erfüllt (sonst käme nie `GAME_WON`).
 
-Zusätzlicher Regressionstest: Bei offenen Türen ist jedes freie Feld der v0.1-Karte vom
-Start erreichbar (keine eingeschlossenen Taschen).
+Zusätzlicher Regressionstest: Bei offenen Türen und erkundeten Treppen ist jedes freie
+Feld der v0.1-Karte vom Start erreichbar (keine eingeschlossenen Taschen).
 
 ## M9 Netzwerk-, Autoritäts- und Sitzungsregeln
 
-- Server ist autoritativ. Aktionen: `MOVE_CHARACTER`, `OPEN_DOOR`, `END_TURN`,
+- Server ist autoritativ. Aktionen: `MOVE_CHARACTER`, `OPEN_DOOR`, `EXPLORE_STAIRS`, `END_TURN`,
   `RESTART_GAME`.
 - Jede Aktion wird geprüft auf: Partie läuft, Spieler am Zug (außer `RESTART_GAME`: nur
   Mitspieler), Figur gehört Spieler, aktionsspezifische Regeln (M4/M5).

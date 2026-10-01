@@ -1,10 +1,12 @@
-import type { GameView, PlayerId } from '@dungeon/shared';
+import type { GameView, ObjectiveView, PlayerId } from '@dungeon/shared';
 import { HERO_COLORS } from '../scene/characters.ts';
 import { button, el } from './dom.ts';
+import { Minimap, levelName } from './minimap.ts';
 
 export interface HudHandlers {
   onEndTurn(): void;
   onRestart(): void;
+  onSelectLevel(level: number): void;
 }
 
 export interface HudState {
@@ -16,8 +18,9 @@ export interface HudState {
 
 const HERO_ICON = { dwarf: '⚒', darkelf: '🗡' } as const;
 
-/** HTML overlay: players, turn budget, objective, log, toasts and banners. */
+/** HTML overlay: players, turn budget, objective, minimap, log, toasts and banners. */
 export class Hud {
+  readonly minimap: Minimap;
   private readonly root: HTMLDivElement;
   private readonly players: HTMLDivElement;
   private readonly codeChip: HTMLDivElement;
@@ -34,7 +37,10 @@ export class Hud {
   private readonly bannerBox: HTMLDivElement;
   private readonly tooltip: HTMLDivElement;
   private readonly connection: HTMLDivElement;
+  private readonly fps: HTMLDivElement;
+  private readonly levelFlash: HTMLDivElement;
   private bannerTimer: number | undefined;
+  private levelFlashTimer: number | undefined;
   private overlay: HTMLDivElement | null = null;
 
   constructor(
@@ -61,7 +67,9 @@ export class Hud {
     this.progress = el('div', 'progress');
     objective.append(el('div', 'label', 'Ziel'), this.objectiveText, this.progress);
     const restart = button('Neues Spiel', 'secondary small', () => void this.confirmRestart());
-    right.append(objective, restart);
+    this.fps = el('div', 'panel fps');
+    this.minimap = new Minimap({ onSelectLevel: (level) => this.handlers.onSelectLevel(level) });
+    right.append(objective, restart, this.minimap.root, this.fps);
     top.append(left, right);
 
     this.turnBar = el('div', 'panel turn-bar');
@@ -83,10 +91,11 @@ export class Hud {
     this.logBox = el('div', 'panel log');
     const help = el('div', 'panel help');
     for (const [key, text] of [
-      ['Klick', 'Laufen / Tür öffnen'],
+      ['Klick', 'Laufen / Tür / Treppe'],
       ['Ziehen', 'Kamera schwenken'],
       ['Rad', 'Zoomen'],
       ['Q E', 'Ansicht drehen'],
+      ['Bild↑↓', 'Ebene wechseln'],
       ['F', 'Held fokussieren'],
       ['G', 'Raster an/aus'],
       ['␣', 'Zug beenden'],
@@ -101,8 +110,9 @@ export class Hud {
     this.tooltip.style.opacity = '0';
     this.connection = el('div', 'panel connection');
     this.connection.style.display = 'none';
+    this.levelFlash = el('div', 'panel level-flash');
 
-    this.root.append(top, this.turnBar, this.logBox, help, this.toasts, this.bannerBox, this.tooltip, this.connection);
+    this.root.append(top, this.levelFlash, this.turnBar, this.logBox, help, this.toasts, this.bannerBox, this.tooltip, this.connection);
   }
 
   show(): void {
@@ -111,6 +121,20 @@ export class Hud {
 
   hide(): void {
     this.root.style.display = 'none';
+  }
+
+  /** Briefly names the storey the camera switched to. */
+  flashLevel(level: number): void {
+    this.levelFlash.textContent = levelName(level);
+    this.levelFlash.classList.add('show');
+    window.clearTimeout(this.levelFlashTimer);
+    this.levelFlashTimer = window.setTimeout(() => this.levelFlash.classList.remove('show'), 1400);
+  }
+
+  /** Frame-rate readout (averaged by the engine), coloured by how smooth it is. */
+  setFps(fps: number): void {
+    this.fps.textContent = `${Math.round(fps)} FPS`;
+    this.fps.dataset['level'] = fps >= 50 ? 'good' : fps >= 30 ? 'ok' : 'bad';
   }
 
   update(view: GameView, you: PlayerId, state: HudState): void {
@@ -137,9 +161,23 @@ export class Hud {
         }),
     );
 
+    this.minimap.update(
+      view,
+      view.heroes.map((h) => ({ level: h.position.level, color: HERO_COLORS[h.kind] })),
+    );
+
     const o = view.objective;
-    this.objectiveText.textContent = o.completed ? 'Gewölbe erkundet! ✨' : `Erkunde das Gewölbe (${o.revealedAreas}/${o.totalAreas})`;
-    this.progress.replaceChildren(...Array.from({ length: o.totalAreas }, (_, i) => el('span', i < o.revealedAreas ? 'done' : '')));
+    const visit = o.type === 'visitAllAreas';
+    this.objectiveText.textContent = o.completed
+      ? 'Gewölbe erkundet! ✨'
+      : visit
+        ? `Alle Bereiche betreten · ${o.visitedAreas}/${o.totalAreas}`
+        : `Erkunde das Gewölbe (${o.revealedAreas}/${o.totalAreas})`;
+    // Visit objective: entered areas are full, discovered but not yet entered ones half lit.
+    const done = visit ? o.visitedAreas : o.revealedAreas;
+    this.progress.replaceChildren(
+      ...Array.from({ length: o.totalAreas }, (_, i) => el('span', i < done ? 'done' : visit && i < o.revealedAreas ? 'seen' : '')),
+    );
 
     const turn = view.turn;
     const mine = turn?.activePlayerId === you;
@@ -154,7 +192,7 @@ export class Hud {
       this.turnHint.textContent = !state.connected
         ? 'Verbindung wird wiederhergestellt …'
         : state.canStillAct
-          ? 'Klicke ein leuchtendes Feld zum Laufen. Steht dein Held an einer Tür, klicke sie an.'
+          ? 'Klicke ein leuchtendes Feld zum Laufen. Steht dein Held an einer Tür oder Treppe, klicke sie an.'
           : 'Nichts mehr zu tun – beende deinen Zug.';
     } else {
       this.turnWho.textContent = `Runde ${turn.round} · ${activeHero?.name ?? '…'} ist am Zug`;
@@ -210,13 +248,17 @@ export class Hud {
     this.connection.textContent = text ?? '';
   }
 
-  showVictory(): void {
+  showVictory(objective: ObjectiveView): void {
     this.closeOverlay();
     const overlay = el('div', 'overlay');
     const dialog = el('div', 'panel dialog');
+    const summary =
+      objective.type === 'visitAllAreas'
+        ? `Ihr habt alle ${objective.totalAreas} Bereiche aufgedeckt und betreten. Jeder Winkel ist erkundet.`
+        : 'Ihr habt alle Räume entdeckt.';
     dialog.append(
       el('h2', undefined, 'Gewölbe erkundet!'),
-      el('p', undefined, 'Ihr habt alle Räume entdeckt. Schaut euch in Ruhe um – oder startet eine neue Partie.'),
+      el('p', undefined, `${summary} Schaut euch in Ruhe um – oder startet eine neue Partie.`),
     );
     const row = el('div', 'row');
     row.append(
