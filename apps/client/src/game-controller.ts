@@ -92,6 +92,10 @@ export class GameController {
   private pinch: { distance: number; x: number; y: number } | null = null;
   private touchInput = false;
   private tapHintTimer: number | undefined;
+  /** Movement points shown while a hero's move is animated; null: as in the view. */
+  private movementShown: number | null = null;
+  /** Bumped when an update is done or abandoned (timeout), so its late animation callbacks do nothing. */
+  private updateGeneration = 0;
 
   constructor(private readonly d: ControllerDeps) {
     this.connection = new Connection({
@@ -334,6 +338,8 @@ export class GameController {
       console.error('animation failed, falling back to snapshot', err);
       await this.rebuild(view);
     } finally {
+      this.updateGeneration++;
+      this.movementShown = null;
       this.showPhase(view);
       this.applyView(view);
     }
@@ -387,7 +393,21 @@ export class GameController {
         this.follow = character;
         const styleBetween = (a: Position, b: Position) =>
           view.stairs.find((s) => stairsEnds(s).every((end) => samePos(end, a) || samePos(end, b)))?.style ?? 'stone';
-        await character.walk(event.path, styleBetween);
+        // The active hero's movement points drain step by step (1 BP each) while it walks.
+        // The view already holds the budget after this update, so count back from there.
+        const activeHero = view.players.find((p) => p.id === view.turn?.activePlayerId)?.heroId;
+        const sameTurn = !later.some((e) => e.type === 'TURN_STARTED' || e.type === 'GAME_RESTARTED');
+        const laterSteps = later.reduce((n, e) => n + (e.type === 'CHARACTER_MOVED' && e.characterId === event.characterId ? e.path.length : 0), 0);
+        const generation = this.updateGeneration;
+        const onStep =
+          view.turn && sameTurn && event.characterId === activeHero
+            ? (begun: number) => {
+                if (generation !== this.updateGeneration) return;
+                this.movementShown = view.turn!.movementLeft + laterSteps + event.path.length - begun;
+                hud.setMovementLeft(this.movementShown);
+              }
+            : undefined;
+        await character.walk(event.path, styleBetween, onStep);
         this.follow = null;
         // The last step may have changed the storey without a frame in between.
         world.setFocusLevel(character.tile.level);
@@ -598,6 +618,7 @@ export class GameController {
       busy: this.queued > 0 || this.pending !== null,
       canStillAct: canStillAct(view, you),
       connected: this.connected,
+      movementLeft: this.movementShown,
     });
     if (!this.canInteract()) {
       this.clearInteraction();

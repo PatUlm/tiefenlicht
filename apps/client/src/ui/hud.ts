@@ -22,6 +22,8 @@ export interface HudState {
   /** False once nothing useful is left this turn (M3 hint). */
   readonly canStillAct: boolean;
   readonly connected: boolean;
+  /** Movement points while a move is animated (null: as in the view). */
+  readonly movementLeft: number | null;
 }
 
 const HERO_ICON = { dwarf: '⚒', darkelf: '🗡' } as const;
@@ -261,7 +263,7 @@ export class Hud {
       this.turnHint.textContent = activePlayer && !activePlayer.connected ? `${activePlayer.name} ist getrennt – das Spiel wartet.` : `${activePlayer?.name ?? ''} spielt gerade.`;
     }
     const max = view.rules.movementPerTurn;
-    const left = turn?.movementLeft ?? 0;
+    const left = state.movementLeft ?? turn?.movementLeft ?? 0;
     this.movePips.replaceChildren(...Array.from({ length: max }, (_, i) => el('span', `pip${i < left ? ' on' : ''}`)));
     this.actionPips.replaceChildren(
       ...Array.from({ length: view.rules.actionsPerTurn }, (_, i) => el('span', `pip action${i < (turn?.actionsLeft ?? 0) ? ' on' : ''}`)),
@@ -269,6 +271,11 @@ export class Hud {
     this.endTurn.style.display = mine ? '' : 'none';
     this.endTurn.disabled = state.busy || !state.connected;
     this.endTurn.classList.toggle('pulse', mine && !state.canStillAct && !state.busy);
+  }
+
+  /** Movement points during a move animation; switches the existing pips, so they fade out. */
+  setMovementLeft(left: number): void {
+    [...this.movePips.children].forEach((pip, i) => pip.classList.toggle('on', i < left));
   }
 
   log(text: string): void {

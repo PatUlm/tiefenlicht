@@ -249,12 +249,20 @@ export class CharacterView {
     });
   }
 
-  /** `styleBetween` tells how a step between two levels is taken: a flight is walked, a ladder climbed. */
-  async walk(path: readonly Position[], styleBetween: (from: Position, to: Position) => StairsStyle = () => 'stone'): Promise<void> {
+  /**
+   * `styleBetween` tells how a step between two levels is taken: a flight is walked, a ladder climbed.
+   * `onStep` is told how many steps have begun, as each one starts.
+   */
+  async walk(
+    path: readonly Position[],
+    styleBetween: (from: Position, to: Position) => StairsStyle = () => 'stone',
+    onStep?: (begun: number) => void,
+  ): Promise<void> {
     if (path.length === 0) return;
     this.moving = true;
     this.play(this.walkAnimation, true, 1.35);
-    for (const p of path) {
+    for (const [i, p] of path.entries()) {
+      onStep?.(i + 1);
       this.heading = p;
       const from = this.root.position.clone();
       const to = tileCenter(p);
