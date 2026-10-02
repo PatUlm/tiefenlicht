@@ -21,6 +21,11 @@ const BETA = 0.93;
 const MIN_RADIUS = 26;
 const MAX_RADIUS = 110;
 
+/** Phones and tablets (touch as primary input) render at reduced quality to stay fluid. */
+const QUALITY = window.matchMedia('(pointer: coarse)').matches
+  ? { maxPixelRatio: 1.5, shadowMap: 1024, samples: 2, bloomKernel: 32 }
+  : { maxPixelRatio: 2, shadowMap: 2048, samples: 4, bloomKernel: 64 };
+
 /**
  * Engine, scene, isometric-style camera, global lighting and post-processing.
  * The camera snaps between four 90° views (Q/E) so the board stays readable,
@@ -44,7 +49,7 @@ export class World {
 
   constructor(readonly canvas: HTMLCanvasElement) {
     this.engine = new Engine(canvas, true, { stencil: true, antialias: true }, false);
-    this.engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 2));
+    this.engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, QUALITY.maxPixelRatio));
     const scene = new Scene(this.engine);
     this.scene = scene;
     scene.useRightHandedSystem = true;
@@ -75,7 +80,7 @@ export class World {
     key.diffuse = new Color3(1, 0.95, 0.88);
     key.specular = new Color3(0.2, 0.2, 0.2);
     key.autoCalcShadowZBounds = true;
-    this.shadows = new ShadowGenerator(2048, key);
+    this.shadows = new ShadowGenerator(QUALITY.shadowMap, key);
     this.shadows.usePercentageCloserFiltering = true;
     this.shadows.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
     this.shadows.bias = 0.004;
@@ -86,11 +91,11 @@ export class World {
     this.glow.intensity = 0.7;
 
     const pipeline = new DefaultRenderingPipeline('pipeline', true, scene, [camera]);
-    pipeline.samples = 4;
+    pipeline.samples = QUALITY.samples;
     pipeline.bloomEnabled = true;
     pipeline.bloomThreshold = 0.85;
     pipeline.bloomWeight = 0.28;
-    pipeline.bloomKernel = 64;
+    pipeline.bloomKernel = QUALITY.bloomKernel;
     pipeline.bloomScale = 0.5;
     pipeline.imageProcessingEnabled = true;
     const ip = pipeline.imageProcessing;

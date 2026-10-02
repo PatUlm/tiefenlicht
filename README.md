@@ -1,4 +1,4 @@
-# Tiefenlicht – Tech-Prototyp v0.2
+# Tiefenlicht – Tech-Prototyp v0.3
 
 Rundenbasiertes 3D-Dungeon-Brettspiel im Browser (Arbeitstitel „Tiefenlicht“), umgesetzt
 nach `dungeon-game-concept.md`. Zwei Spieler (Zwerg und Dunkelelf) erkunden gemeinsam
@@ -64,7 +64,17 @@ Clients kehren dann automatisch in die Lobby zurück.
 | Bild↑ / Bild↓ | Ebene wechseln (auch über die Ebenen-Buttons der Minimap) |
 | F | eigenen Helden fokussieren (inkl. seiner Ebene) |
 | G | Raster ein/aus |
+| M | Musik ein/aus (auch über den ♪-Button) |
 | Leertaste | Zug beenden |
+
+Auf dem **Handy** (Hoch- und Querformat) gilt: Tippen = Klick, ein Finger schwenkt, zwei
+Finger zoomen. Drehen und Held fokussieren liegen als Buttons unten links; Spielcode,
+Raster, Neues Spiel und FPS stecken im Menü ☰, die Minimap ist einklappbar. Touch-Geräte
+rendern mit reduzierter Grafikqualität.
+
+Die **Hintergrundmusik** ist ein eigenes Chiptune im Amiga/NES-Stil, das zur Laufzeit per
+WebAudio synthetisiert wird (`apps/client/src/audio/`). Sie startet mit der ersten
+Eingabe (Autoplay-Regel der Browser); ein/aus wird im Browser gespeichert.
 
 Die Kamera zeigt immer eine **Fokus-Ebene**: Sie folgt dem Helden am Zug und jeder
 laufenden Figur, auch über Treppen; beim Wechsel blendet sie kurz den Namen ein
@@ -115,7 +125,7 @@ einheitlichen Stil, die Figuren sind animiert (Laufen, Interagieren, Erwachen, J
 und die Pakete sind direkt per Git beziehbar. Sarkophag, Bücherregale, Kessel, Kristall
 und Statue-Sockel sind prozedural erzeugt. Font: Fredoka (SIL OFL).
 
-## Bekannte Grenzen v0.2
+## Bekannte Grenzen v0.3
 
 - Kein Kampf, keine Würfel, kein Inventar, keine Monster-KI (laut Konzept bewusst später).
 - Spiele liegen nur im Speicher. Ein Server-Neustart beendet alle Partien.

@@ -14,7 +14,7 @@ import {
   type Texture,
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
-import { createDungeonPalettes, STONE_MODELS } from './palette.ts';
+import { createDungeonPalettes, createFigureTexture, DARK_ELF_SCHEME, STONE_MODELS, type FigureScheme } from './palette.ts';
 
 /** Static dungeon modules: one mesh each, rendered as instances. */
 export const DUNGEON_MODELS = [
@@ -72,6 +72,12 @@ export type CharacterModel = (typeof CHARACTER_MODELS)[number];
 export const WEAPON_MODELS = ['Skeleton_Blade', 'Skeleton_Staff', 'Skeleton_Axe', 'Skeleton_Shield_Small_A'] as const;
 export type WeaponModel = (typeof WEAPON_MODELS)[number];
 
+/** Recoloured figure textures, built once after loading (see palette.ts). */
+const FIGURE_VARIANTS = {
+  darkelf: { model: 'Rogue_Hooded', scheme: DARK_ELF_SCHEME },
+} as const satisfies Record<string, { model: CharacterModel; scheme: FigureScheme }>;
+export type FigureVariant = keyof typeof FIGURE_VARIANTS;
+
 export interface CharacterInstance {
   readonly root: TransformNode;
   readonly meshes: AbstractMesh[];
@@ -99,6 +105,7 @@ export class AssetLibrary {
   private readonly characters = new Map<CharacterModel, AssetContainer>();
   private readonly weapons = new Map<WeaponModel, Mesh>();
   private readonly materials = new Map<Material, StandardMaterial>();
+  private readonly figureTextures = new Map<FigureVariant, Texture>();
 
   constructor(private readonly scene: Scene) {}
 
@@ -132,6 +139,16 @@ export class AssetLibrary {
         onProgress(++loaded, jobs.length);
       }),
     );
+    for (const [variant, { model, scheme }] of Object.entries(FIGURE_VARIANTS) as [FigureVariant, (typeof FIGURE_VARIANTS)[FigureVariant]][]) {
+      const source = this.characters.get(model)!.meshes.map((m) => m.material).find((m) => m instanceof StandardMaterial)?.diffuseTexture;
+      if (!source) throw new Error(`No texture to recolour: ${model}`);
+      this.figureTextures.set(variant, await createFigureTexture(source as Texture, scheme, `figure-${variant}`));
+    }
+  }
+
+  /** Recoloured texture of a figure variant. */
+  figureTexture(variant: FigureVariant): Texture {
+    return this.figureTextures.get(variant)!;
   }
 
   /** A new instance of a static dungeon module. */

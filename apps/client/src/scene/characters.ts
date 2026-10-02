@@ -11,7 +11,7 @@ import {
   type Scene,
 } from '@babylonjs/core';
 import type { CharacterId, Direction, HeroKind, MonsterKind, Position, StairsStyle } from '@dungeon/shared';
-import type { AssetLibrary, CharacterInstance, CharacterModel, WeaponModel } from './assets.ts';
+import type { AssetLibrary, CharacterInstance, CharacterModel, FigureVariant, WeaponModel } from './assets.ts';
 import type { Effects } from './effects.ts';
 import { CELL, LADDER_RUN, angleDelta, facingAngle, tileCenter, yawTowards } from './grid.ts';
 import { ease, tween } from './tween.ts';
@@ -22,7 +22,8 @@ interface CharacterStyle {
   readonly scale: Vector3;
   readonly hide: readonly string[];
   readonly weapons: readonly [WeaponModel, 'handslot.r' | 'handslot.l'][];
-  readonly tint?: Color3;
+  /** Recoloured texture (palette.ts), e.g. the dark elf's violet clothes and grey skin. */
+  readonly variant?: FigureVariant;
   readonly baseColor: Color3;
   readonly idle: string;
   readonly walk?: string;
@@ -48,7 +49,7 @@ const STYLES: Record<HeroKind | MonsterKind, CharacterStyle> = {
     scale: new Vector3(1.5, 1.75, 1.5),
     hide: ['1H_Crossbow', '2H_Crossbow', 'Throwable'],
     weapons: [],
-    tint: new Color3(0.72, 0.58, 1.0),
+    variant: 'darkelf',
     baseColor: Color3.FromHexString(HERO_COLORS.darkelf),
     idle: 'Idle',
     walk: 'Walking_A',
@@ -162,17 +163,16 @@ export class CharacterView {
     this.ring.isPickable = false;
     this.ring.setEnabled(false);
 
-    this.model = assets.character(this.style.model, !!this.style.tint);
+    const variant = this.style.variant;
+    this.model = assets.character(this.style.model, !!variant);
     this.model.root.parent = this.root;
     this.model.root.position.y = BASE_HEIGHT + 0.05;
     this.model.root.scaling = this.style.scale.clone();
     for (const mesh of this.model.meshes) {
       mesh.isPickable = false;
       if (this.style.hide.some((h) => mesh.name.endsWith(`:${h}`))) mesh.setEnabled(false);
-      if (this.style.tint && mesh.material instanceof StandardMaterial) {
-        mesh.material.diffuseColor = this.style.tint;
-        mesh.material.emissiveColor = new Color3(0.05, 0.0, 0.1);
-      }
+      // No emissive: through the glow layer it would veil the whole figure (and the grey skin) in its colour.
+      if (variant && mesh.material instanceof StandardMaterial) mesh.material.diffuseTexture = assets.figureTexture(variant);
       world.addShadowCaster(mesh);
     }
     for (const [weapon, slot] of this.style.weapons) {
@@ -353,6 +353,10 @@ export class CharacterView {
   dispose(): void {
     this.world.scene.onBeforeRenderObservable.removeCallback(this.onFrame);
     for (const group of this.model.animations.values()) group.dispose();
+    // The variant texture is shared by all copies of the figure: dispose only the cloned materials.
+    if (this.style.variant) {
+      for (const mesh of this.model.meshes) if (mesh.material instanceof StandardMaterial) mesh.material.diffuseTexture = null;
+    }
     this.label.remove();
     this.root.dispose(false, true);
   }

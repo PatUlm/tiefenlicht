@@ -1,6 +1,7 @@
 import '@fontsource-variable/fredoka';
 import { Matrix, Vector3 } from '@babylonjs/core';
 import './styles.css';
+import { Music } from './audio/music.ts';
 import { GameController } from './game-controller.ts';
 import { AssetLibrary } from './scene/assets.ts';
 import { BoardOverlay } from './scene/board-overlay.ts';
@@ -31,17 +32,29 @@ async function main(): Promise<void> {
   const dungeon = new DungeonView(world, assets, effects);
   const overlay = new BoardOverlay(world.scene, world.glow);
 
+  const music = new Music();
   let controller: GameController;
-  const hud = new Hud(ui, {
-    onEndTurn: () => controller.endTurn(),
-    onRestart: () => controller.restart(),
-    onSelectLevel: (level) => controller.selectLevel(level),
-  });
-  const lobby = new LobbyUI(ui, {
-    onCreate: (name) => controller.createGame(name),
-    onJoin: (code, name, takeOver) => controller.joinGame(code, name, takeOver),
-  });
-  controller = new GameController({ world, assets, effects, dungeon, overlay, hud, lobby, labels });
+  const hud = new Hud(
+    ui,
+    {
+      onEndTurn: () => controller.endTurn(),
+      onRestart: () => controller.restart(),
+      onSelectLevel: (level) => controller.selectLevel(level),
+      onRotate: (step) => controller.rotateView(step),
+      onFocusHero: () => controller.focusHero(),
+      onToggleGrid: () => controller.toggleGrid(),
+    },
+    music,
+  );
+  const lobby = new LobbyUI(
+    ui,
+    {
+      onCreate: (name) => controller.createGame(name),
+      onJoin: (code, name, takeOver) => controller.joinGame(code, name, takeOver),
+    },
+    music,
+  );
+  controller = new GameController({ world, assets, effects, dungeon, overlay, hud, lobby, labels, music });
   controller.start();
   window.setInterval(() => hud.setFps(world.engine.getFps()), 500);
 

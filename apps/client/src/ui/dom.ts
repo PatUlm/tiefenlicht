@@ -16,3 +16,11 @@ export function button(label: string, className: string, onClick: () => void): H
   b.addEventListener('click', onClick);
   return b;
 }
+
+/** Round button showing a symbol; `label` is its accessible name and tooltip. */
+export function iconButton(icon: string, label: string, className: string, onClick: () => void): HTMLButtonElement {
+  const b = button(icon, `icon ${className}`.trim(), onClick);
+  b.title = label;
+  b.setAttribute('aria-label', label);
+  return b;
+}

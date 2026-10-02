@@ -1,5 +1,7 @@
 import { MAX_PLAYER_NAME_LENGTH } from '@dungeon/shared';
+import type { Music } from '../audio/music.ts';
 import { button, el } from './dom.ts';
+import { musicButton } from './music-button.ts';
 
 export interface LobbyHandlers {
   onCreate(name: string): void;
@@ -34,10 +36,11 @@ export class LobbyUI {
   constructor(
     parent: HTMLElement,
     private readonly handlers: LobbyHandlers,
+    music: Music,
   ) {
     this.root = el('div', 'lobby');
     this.card = el('div', 'panel lobby-card');
-    this.root.appendChild(this.card);
+    this.root.append(this.card, musicButton(music));
     parent.appendChild(this.root);
   }
 
@@ -45,7 +48,7 @@ export class LobbyUI {
     this.busy = false;
     this.root.classList.remove('fade');
     this.card.replaceChildren();
-    this.card.append(el('h1', 'logo', 'Tiefenlicht'), el('p', 'subtitle', 'Ein Dungeon-Brettspiel · Tech-Prototyp v0.2'));
+    this.card.append(el('h1', 'logo', 'Tiefenlicht'), el('p', 'subtitle', 'Ein Dungeon-Brettspiel · Tech-Prototyp v0.3'));
 
     const nameField = el('div', 'field');
     const nameInput = el('input');

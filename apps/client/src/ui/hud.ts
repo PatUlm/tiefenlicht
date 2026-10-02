@@ -1,13 +1,21 @@
 import type { GameView, ObjectiveView, PlayerId } from '@dungeon/shared';
+import type { Music } from '../audio/music.ts';
 import { HERO_COLORS } from '../scene/characters.ts';
-import { button, el } from './dom.ts';
+import { button, el, iconButton } from './dom.ts';
 import { Minimap, levelName } from './minimap.ts';
+import { musicButton } from './music-button.ts';
 
 export interface HudHandlers {
   onEndTurn(): void;
   onRestart(): void;
   onSelectLevel(level: number): void;
+  onRotate(step: 1 | -1): void;
+  onFocusHero(): void;
+  onToggleGrid(): void;
 }
+
+/** Touch screens get tap wording and the touch layout parts (styles.css uses the same query). */
+const coarsePointer = window.matchMedia('(pointer: coarse)');
 
 export interface HudState {
   readonly busy: boolean;
@@ -24,6 +32,10 @@ export class Hud {
   private readonly root: HTMLDivElement;
   private readonly players: HTMLDivElement;
   private readonly codeChip: HTMLDivElement;
+  private readonly menu: HTMLDivElement;
+  private readonly menuButton: HTMLButtonElement;
+  private readonly menuCode: HTMLDivElement;
+  private readonly menuFps: HTMLDivElement;
   private readonly objectiveText: HTMLDivElement;
   private readonly progress: HTMLDivElement;
   private readonly turnBar: HTMLDivElement;
@@ -42,12 +54,15 @@ export class Hud {
   private bannerTimer: number | undefined;
   private levelFlashTimer: number | undefined;
   private overlay: HTMLDivElement | null = null;
+  /** Set by the controller per pointer: touch tooltips sit above the finger. */
+  touchInput = false;
 
   constructor(
     parent: HTMLElement,
     private readonly handlers: HudHandlers,
+    music: Music,
   ) {
-    this.root = el('div');
+    this.root = el('div', 'hud');
     this.root.style.display = 'none';
     parent.appendChild(this.root);
 
@@ -66,11 +81,34 @@ export class Hud {
     this.objectiveText = el('div', 'text');
     this.progress = el('div', 'progress');
     objective.append(el('div', 'label', 'Ziel'), this.objectiveText, this.progress);
-    const restart = button('Neues Spiel', 'secondary small', () => void this.confirmRestart());
+    const restart = button('Neues Spiel', 'secondary small restart', () => void this.confirmRestart());
+    // Small screens: title, code, grid, restart and FPS move into a menu (styles.css).
+    this.menuButton = iconButton('☰', 'Menü', 'menu-button', () => this.toggleMenu());
+    this.menu = el('div', 'panel hud-menu');
+    this.menuCode = el('div', 'menu-code');
+    this.menuFps = el('div', 'menu-fps');
+    this.menu.append(
+      el('div', 'menu-title', 'Tiefenlicht'),
+      this.menuCode,
+      button('Raster an/aus', 'secondary small', () => {
+        this.toggleMenu(false);
+        this.handlers.onToggleGrid();
+      }),
+      button('Neues Spiel', 'secondary small', () => {
+        this.toggleMenu(false);
+        this.confirmRestart();
+      }),
+      this.menuFps,
+    );
+    const actions = el('div', 'hud-actions');
+    actions.append(restart, musicButton(music), this.menuButton, this.menu);
     this.fps = el('div', 'panel fps');
     this.minimap = new Minimap({ onSelectLevel: (level) => this.handlers.onSelectLevel(level) });
-    right.append(objective, restart, this.minimap.root, this.fps);
+    right.append(objective, actions, this.minimap.root, this.fps);
     top.append(left, right);
+    document.addEventListener('pointerdown', (e) => {
+      if (this.menu.classList.contains('open') && !actions.contains(e.target as Node)) this.toggleMenu(false);
+    });
 
     this.turnBar = el('div', 'panel turn-bar');
     const who = el('div');
@@ -88,6 +126,18 @@ export class Hud {
     this.endTurn = button('Zug beenden', '', () => this.handlers.onEndTurn());
     this.turnBar.append(who, budget, this.endTurn);
 
+    // Thumb controls for touch and small screens (keyboard shortcuts elsewhere).
+    const camera = el('div', 'camera-controls');
+    camera.append(
+      iconButton('↺', 'Ansicht drehen (Q)', '', () => this.handlers.onRotate(-1)),
+      iconButton('◎', 'Held fokussieren (F)', '', () => this.handlers.onFocusHero()),
+      iconButton('↻', 'Ansicht drehen (E)', '', () => this.handlers.onRotate(1)),
+    );
+    const bottom = el('div', 'hud-bottom');
+    bottom.append(camera, this.turnBar);
+    // Toasts and the storey name sit above the bottom bar on small screens.
+    new ResizeObserver(() => this.root.style.setProperty('--hud-bottom', `${bottom.offsetHeight}px`)).observe(bottom);
+
     this.logBox = el('div', 'panel log');
     const help = el('div', 'panel help');
     for (const [key, text] of [
@@ -98,6 +148,7 @@ export class Hud {
       ['Bild↑↓', 'Ebene wechseln'],
       ['F', 'Held fokussieren'],
       ['G', 'Raster an/aus'],
+      ['M', 'Musik an/aus'],
       ['␣', 'Zug beenden'],
     ] as const) {
       const row = el('div');
@@ -112,7 +163,12 @@ export class Hud {
     this.connection.style.display = 'none';
     this.levelFlash = el('div', 'panel level-flash');
 
-    this.root.append(top, this.levelFlash, this.turnBar, this.logBox, help, this.toasts, this.bannerBox, this.tooltip, this.connection);
+    this.root.append(top, this.levelFlash, bottom, this.logBox, help, this.toasts, this.bannerBox, this.tooltip, this.connection);
+  }
+
+  private toggleMenu(open = !this.menu.classList.contains('open')): void {
+    this.menu.classList.toggle('open', open);
+    this.menuButton.setAttribute('aria-expanded', String(open));
   }
 
   show(): void {
@@ -133,12 +189,16 @@ export class Hud {
 
   /** Frame-rate readout (averaged by the engine), coloured by how smooth it is. */
   setFps(fps: number): void {
-    this.fps.textContent = `${Math.round(fps)} FPS`;
-    this.fps.dataset['level'] = fps >= 50 ? 'good' : fps >= 30 ? 'ok' : 'bad';
+    const level = fps >= 50 ? 'good' : fps >= 30 ? 'ok' : 'bad';
+    for (const node of [this.fps, this.menuFps]) {
+      node.textContent = `${Math.round(fps)} FPS`;
+      node.dataset['level'] = level;
+    }
   }
 
   update(view: GameView, you: PlayerId, state: HudState): void {
     this.codeChip.replaceChildren(document.createTextNode('Code '), el('b', undefined, view.gameId));
+    this.menuCode.replaceChildren(document.createTextNode('Spielcode '), el('b', undefined, view.gameId));
 
     const heroes = new Map(view.heroes.map((h) => [h.id, h]));
     const active = view.turn?.activePlayerId;
@@ -147,7 +207,7 @@ export class Hud {
         .sort((a, b) => a.slot - b.slot)
         .map((p) => {
           const hero = heroes.get(p.heroId);
-          const row = el('div', `player${p.id === active ? ' active' : ''}`);
+          const row = el('div', `player${p.id === active ? ' active' : ''}${p.id === you ? ' you' : ''}`);
           row.style.setProperty('--player-color', hero ? HERO_COLORS[hero.kind] : '#888');
           const info = el('div', 'info');
           info.append(el('span', 'hero', hero?.name ?? '?'), el('span', 'who', `${p.name}${p.id === you ? ' (du)' : ''} · ${hero?.kind === 'dwarf' ? 'Zwerg' : 'Dunkelelf'}`));
@@ -168,13 +228,13 @@ export class Hud {
 
     const o = view.objective;
     const visit = o.type === 'visitAllAreas';
-    this.objectiveText.textContent = o.completed
-      ? 'Gewölbe erkundet! ✨'
-      : visit
-        ? `Alle Bereiche betreten · ${o.visitedAreas}/${o.totalAreas}`
-        : `Erkunde das Gewölbe (${o.revealedAreas}/${o.totalAreas})`;
     // Visit objective: entered areas are full, discovered but not yet entered ones half lit.
     const done = visit ? o.visitedAreas : o.revealedAreas;
+    // Goal and count separately: phones show only the count (styles.css).
+    this.objectiveText.replaceChildren(
+      el('span', 'goal', o.completed ? 'Gewölbe erkundet! ✨' : visit ? 'Alle Bereiche betreten' : 'Erkunde das Gewölbe'),
+      el('span', 'count', o.completed ? '' : `${done}/${o.totalAreas}`),
+    );
     this.progress.replaceChildren(
       ...Array.from({ length: o.totalAreas }, (_, i) => el('span', i < done ? 'done' : visit && i < o.revealedAreas ? 'seen' : '')),
     );
@@ -192,7 +252,9 @@ export class Hud {
       this.turnHint.textContent = !state.connected
         ? 'Verbindung wird wiederhergestellt …'
         : state.canStillAct
-          ? 'Klicke ein leuchtendes Feld zum Laufen. Steht dein Held an einer Tür oder Treppe, klicke sie an.'
+          ? coarsePointer.matches
+            ? 'Tippe ein leuchtendes Feld zum Laufen. Steht dein Held an einer Tür oder Treppe, tippe sie an.'
+            : 'Klicke ein leuchtendes Feld zum Laufen. Steht dein Held an einer Tür oder Treppe, klicke sie an.'
           : 'Nichts mehr zu tun – beende deinen Zug.';
     } else {
       this.turnWho.textContent = `Runde ${turn.round} · ${activeHero?.name ?? '…'} ist am Zug`;
@@ -239,8 +301,20 @@ export class Hud {
     this.tooltip.textContent = text;
     this.tooltip.className = `tooltip ${kind}`;
     this.tooltip.style.opacity = '1';
-    this.tooltip.style.left = `${x}px`;
-    this.tooltip.style.top = `${y}px`;
+    // Beside the pointer. For a finger further out and raised, so neither the finger
+    // nor the tapped tile and figure are covered. Always inside the screen.
+    const width = this.tooltip.offsetWidth;
+    const height = this.tooltip.offsetHeight;
+    const margin = 8;
+    const offset = this.touchInput ? 52 : 14;
+    let left = x + offset;
+    let top = this.touchInput ? y - height - 36 : y + 14;
+    if (left + width > window.innerWidth - margin) left = x - width - offset;
+    if (top < margin) top = y + 28;
+    left = Math.max(margin, Math.min(window.innerWidth - width - margin, left));
+    top = Math.max(margin, Math.min(window.innerHeight - height - margin, top));
+    this.tooltip.style.left = `${left}px`;
+    this.tooltip.style.top = `${top}px`;
   }
 
   setConnection(text: string | null): void {

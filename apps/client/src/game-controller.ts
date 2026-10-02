@@ -23,6 +23,7 @@ import {
   type StairsId,
   type StairsView,
 } from '@dungeon/shared';
+import type { Music } from './audio/music.ts';
 import { Connection, sessionStore, type ConnectionStatus, type StoredSession } from './net/connection.ts';
 import type { AssetLibrary } from './scene/assets.ts';
 import type { BoardOverlay } from './scene/board-overlay.ts';
@@ -51,7 +52,13 @@ export interface ControllerDeps {
   readonly hud: Hud;
   readonly lobby: LobbyUI;
   readonly labels: HTMLElement;
+  readonly music: Music;
 }
+
+/** Movement (px) after which a press becomes a camera drag instead of a click or tap. */
+const DRAG_THRESHOLD = { mouse: 6, touch: 10 };
+/** How long the reason for a refused tap stays visible (touch has no hover). */
+const TAP_HINT_MS = 1800;
 
 /**
  * Client orchestration. The server is authoritative: this class only sends
@@ -80,6 +87,11 @@ export class GameController {
   private readonly keys = new Set<string>();
   private drag: { x: number; y: number; moved: boolean; button: number } | null = null;
   private lastPointer = { x: 0, y: 0 };
+  /** Fingers on the canvas; two of them pinch (zoom) and pan together. */
+  private readonly touches = new Map<number, { x: number; y: number }>();
+  private pinch: { distance: number; x: number; y: number } | null = null;
+  private touchInput = false;
+  private tapHintTimer: number | undefined;
 
   constructor(private readonly d: ControllerDeps) {
     this.connection = new Connection({
@@ -128,6 +140,20 @@ export class GameController {
   /** Shows another storey (minimap buttons, Page Up/Down). */
   selectLevel(level: number): void {
     if (this.d.dungeon.knownLevels().includes(level)) this.d.world.setFocusLevel(level);
+  }
+
+  rotateView(step: 1 | -1): void {
+    this.d.world.rotateView(step);
+  }
+
+  /** Camera on the own hero, on its storey. */
+  focusHero(): void {
+    const hero = this.characters.get(this.myHero()?.id ?? '');
+    if (hero) this.focusCharacter(hero);
+  }
+
+  toggleGrid(): void {
+    this.d.overlay.toggleGrid();
   }
 
   restart(): void {
@@ -585,7 +611,8 @@ export class GameController {
     this.d.overlay.setReachable([...this.reachable.values()].map((r) => r.position).filter((p) => p.level === focus));
     this.d.dungeon.setOpenableDoors(this.openable);
     this.d.dungeon.setExplorableStairs(this.explorable);
-    this.hover(this.lastPointer.x, this.lastPointer.y);
+    // A finger is not hovering: no preview at the spot of the last tap.
+    if (!this.touchInput) this.hover(this.lastPointer.x, this.lastPointer.y);
   }
 
   /**
@@ -708,44 +735,92 @@ export class GameController {
     hud.tooltipAt(result.ok ? null : REASON_TEXT[result.reason] ?? 'Nicht möglich', x, y, 'bad');
   }
 
-  private click(x: number, y: number): void {
-    if (!this.canInteract() || !this.view) return;
+  /** Acts on what is under the pointer; false if there was nothing to do. */
+  private click(x: number, y: number): boolean {
+    if (!this.canInteract() || !this.view) return false;
     const target = this.pickAt(x, y);
     const hero = this.myHero()!;
     if (target.door) {
-      if (this.openable.has(target.door)) this.request({ type: 'OPEN_DOOR', characterId: hero.id, doorId: target.door });
-      return;
+      if (!this.openable.has(target.door)) return false;
+      this.request({ type: 'OPEN_DOOR', characterId: hero.id, doorId: target.door });
+      return true;
     }
     if (target.stairs) {
       const stairs = this.view.stairs.find((s) => s.id === target.stairs)!;
       if (this.explorable.has(stairs.id)) {
         this.request({ type: 'EXPLORE_STAIRS', characterId: hero.id, stairsId: stairs.id });
-        return;
+        return true;
       }
       const reach = stairs.explored ? this.stairsTarget(stairs) : undefined;
-      if (reach) this.request({ type: 'MOVE_CHARACTER', characterId: hero.id, target: reach.position });
-      return;
+      if (!reach) return false;
+      this.request({ type: 'MOVE_CHARACTER', characterId: hero.id, target: reach.position });
+      return true;
     }
     if (target.tile && this.reachable.has(posKey(target.tile))) {
       this.request({ type: 'MOVE_CHARACTER', characterId: hero.id, target: target.tile });
-    } else if (target.character === hero.id) {
-      this.d.world.focus(tileCenter(hero.position));
+      return true;
     }
+    if (target.character === hero.id) this.d.world.focus(tileCenter(hero.position));
+    return false;
+  }
+
+  /** Touch has no hover: a tap acts at once; if it cannot, the hover text explains why for a moment. */
+  private tap(x: number, y: number): void {
+    window.clearTimeout(this.tapHintTimer);
+    this.lastPointer = { x, y };
+    if (this.click(x, y)) return;
+    this.hover(x, y);
+    this.tapHintTimer = window.setTimeout(() => {
+      this.d.hud.tooltipAt(null);
+      this.d.overlay.setHover(null, false);
+      this.d.overlay.setPath([]);
+    }, TAP_HINT_MS);
+  }
+
+  /** Distance and midpoint of the first two fingers. */
+  private pinchState(): { distance: number; x: number; y: number } {
+    const [a, b] = [...this.touches.values()] as [{ x: number; y: number }, { x: number; y: number }];
+    return { distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   }
 
   private bindInput(): void {
     const canvas = this.d.world.canvas;
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('pointerdown', (e) => {
-      this.drag = { x: e.clientX, y: e.clientY, moved: false, button: e.button };
+      this.touchInput = e.pointerType === 'touch';
+      this.d.hud.touchInput = this.touchInput;
       canvas.setPointerCapture(e.pointerId);
+      if (this.touchInput) {
+        this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (this.touches.size >= 2) {
+          // A second finger turns the gesture into a pinch; no tap any more.
+          this.drag = null;
+          this.pinch = this.pinchState();
+          this.d.hud.tooltipAt(null);
+          return;
+        }
+      }
+      this.drag = { x: e.clientX, y: e.clientY, moved: false, button: e.button };
     });
     canvas.addEventListener('pointermove', (e) => {
-      this.lastPointer = { x: e.clientX, y: e.clientY };
+      const finger = this.touches.get(e.pointerId);
+      if (finger) {
+        finger.x = e.clientX;
+        finger.y = e.clientY;
+        if (this.pinch && this.touches.size >= 2) {
+          const next = this.pinchState();
+          this.d.world.zoom(this.pinch.distance / next.distance - 1);
+          this.d.world.pan(next.x - this.pinch.x, next.y - this.pinch.y);
+          this.pinch = next;
+          return;
+        }
+      } else {
+        this.lastPointer = { x: e.clientX, y: e.clientY };
+      }
       if (this.drag) {
         const dx = e.clientX - this.drag.x;
         const dy = e.clientY - this.drag.y;
-        if (!this.drag.moved && Math.hypot(dx, dy) > 6) this.drag.moved = true;
+        if (!this.drag.moved && Math.hypot(dx, dy) > (finger ? DRAG_THRESHOLD.touch : DRAG_THRESHOLD.mouse)) this.drag.moved = true;
         if (this.drag.moved) {
           this.d.world.pan(dx, dy);
           this.drag.x = e.clientX;
@@ -754,14 +829,31 @@ export class GameController {
           return;
         }
       }
-      this.hover(e.clientX, e.clientY);
+      if (!finger) this.hover(e.clientX, e.clientY);
     });
-    canvas.addEventListener('pointerup', (e) => {
+    const release = (e: PointerEvent, cancelled: boolean) => {
+      if (this.touches.delete(e.pointerId) && this.pinch) {
+        if (this.touches.size >= 2) {
+          // Still two fingers down: pinch on with them.
+          this.pinch = this.pinchState();
+        } else {
+          // The finger still down pans on, without jumping and without tapping.
+          this.pinch = null;
+          const [rest] = [...this.touches.values()];
+          if (rest) this.drag = { x: rest.x, y: rest.y, moved: true, button: 0 };
+        }
+        return;
+      }
       const drag = this.drag;
       this.drag = null;
-      if (drag && !drag.moved && drag.button === 0) this.click(e.clientX, e.clientY);
-    });
-    canvas.addEventListener('pointerleave', () => this.d.hud.tooltipAt(null));
+      if (cancelled || !drag || drag.moved || drag.button !== 0) return;
+      if (e.pointerType === 'touch') this.tap(e.clientX, e.clientY);
+      else this.click(e.clientX, e.clientY);
+    };
+    canvas.addEventListener('pointerup', (e) => release(e, false));
+    canvas.addEventListener('pointercancel', (e) => release(e, true));
+    // A lifted finger also "leaves"; its tap hint must stay.
+    canvas.addEventListener('pointerleave', (e) => e.pointerType !== 'touch' && this.d.hud.tooltipAt(null));
     canvas.addEventListener(
       'wheel',
       (e) => {
@@ -775,13 +867,12 @@ export class GameController {
       if (e.repeat || document.querySelector('.overlay')) return;
       if (e.target instanceof HTMLElement && e.target.closest('button, input, textarea, [role=dialog]')) return;
       const key = e.key.toLowerCase();
-      if (key === 'q') this.d.world.rotateView(-1);
-      else if (key === 'e') this.d.world.rotateView(1);
-      else if (key === 'g') this.d.overlay.toggleGrid();
-      else if (key === 'f') {
-        const hero = this.characters.get(this.myHero()?.id ?? '');
-        if (hero) this.focusCharacter(hero);
-      } else if (key === 'pageup' || key === 'pagedown') {
+      if (key === 'q') this.rotateView(-1);
+      else if (key === 'e') this.rotateView(1);
+      else if (key === 'g') this.toggleGrid();
+      else if (key === 'f') this.focusHero();
+      else if (key === 'm') this.d.music.toggle();
+      else if (key === 'pageup' || key === 'pagedown') {
         e.preventDefault();
         const levels = this.d.dungeon.knownLevels();
         const index = levels.indexOf(this.d.world.focusLevel) + (key === 'pageup' ? 1 : -1);

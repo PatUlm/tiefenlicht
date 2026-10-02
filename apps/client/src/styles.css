@@ -13,6 +13,11 @@
   --darkelf: #b38cff;
   --radius: 16px;
   --shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  /* Screen edges on phones, clear of notches and the home indicator. */
+  --inset-top: max(10px, env(safe-area-inset-top));
+  --inset-right: max(10px, env(safe-area-inset-right));
+  --inset-bottom: max(10px, env(safe-area-inset-bottom));
+  --inset-left: max(10px, env(safe-area-inset-left));
   font-family: 'Fredoka Variable', 'Fredoka', system-ui, sans-serif;
   color: var(--text);
 }
@@ -38,6 +43,13 @@ body {
   height: 100%;
   outline: none;
   display: block;
+  /* Pan and pinch are the game's own (game-controller.ts), not the browser's. */
+  touch-action: none;
+}
+
+/* No browser zoom or double-tap delay on HUD panels and buttons. */
+.hud {
+  touch-action: none;
 }
 
 #labels,
@@ -96,6 +108,7 @@ input {
 .btn {
   pointer-events: auto;
   cursor: pointer;
+  touch-action: manipulation;
   border: none;
   border-radius: 12px;
   padding: 11px 20px;
@@ -140,6 +153,43 @@ input {
   animation: pulse 1.4s ease-in-out infinite;
 }
 
+.btn.icon {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text);
+  background: linear-gradient(180deg, #4b3a80 0%, #2f2358 100%);
+  box-shadow: 0 3px 0 #1b1236, 0 6px 14px rgba(0, 0, 0, 0.35);
+}
+
+.btn.icon:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #1b1236, 0 3px 8px rgba(0, 0, 0, 0.35);
+}
+
+.music-button.off {
+  color: var(--text-dim);
+}
+
+/* Struck-through note when the music is off. */
+.music-button.off::after {
+  content: '';
+  position: absolute;
+  left: 24%;
+  right: 24%;
+  top: 50%;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  transform: rotate(-45deg);
+}
+
 @keyframes pulse {
   0%,
   100% {
@@ -155,8 +205,10 @@ input {
 .lobby {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  /* Scrolls when the card is taller than the screen (phones in landscape). */
+  overflow-y: auto;
+  padding: 16px 0;
   pointer-events: auto;
   background: radial-gradient(ellipse at 50% 30%, rgba(62, 40, 110, 0.55), rgba(10, 6, 20, 0.85));
   transition: opacity 0.6s;
@@ -174,8 +226,18 @@ input {
 
 .lobby-card {
   width: min(460px, calc(100vw - 32px));
+  margin: auto;
   padding: 34px 32px 28px;
   text-align: center;
+}
+
+.lobby > .music-button {
+  position: fixed;
+  top: var(--inset-top);
+  right: var(--inset-right);
+  width: 40px;
+  height: 40px;
+  font-size: 18px;
 }
 
 .logo {
@@ -328,6 +390,52 @@ input {
   align-items: flex-end;
 }
 
+.hud-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The menu (phones only) holds title, code, grid, restart and FPS. */
+.hud-actions .menu-button,
+.hud-menu {
+  display: none;
+}
+
+.hud-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5;
+  min-width: 210px;
+  padding: 12px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.menu-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.menu-code {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.menu-code b {
+  color: var(--text);
+  letter-spacing: 2px;
+}
+
+.menu-fps {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
 .title-chip {
   padding: 10px 16px;
   display: flex;
@@ -448,6 +556,10 @@ input {
   margin: 2px 0 8px;
 }
 
+.objective .count:not(:empty)::before {
+  content: ' · ';
+}
+
 .progress {
   display: flex;
   gap: 5px;
@@ -490,11 +602,23 @@ input {
   transform: translate(-50%, 0);
 }
 
-.turn-bar {
+.hud-bottom {
   position: absolute;
   bottom: 18px;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+/* Thumb controls: touch and small screens only (see the media queries below). */
+.camera-controls {
+  display: none;
+  gap: 8px;
+}
+
+.turn-bar {
   padding: 12px 16px 12px 20px;
   display: flex;
   align-items: center;
@@ -591,6 +715,7 @@ input {
 }
 
 .minimap {
+  position: relative;
   display: flex;
   align-items: stretch;
   gap: 6px;
@@ -599,6 +724,12 @@ input {
 
 .minimap canvas {
   display: block;
+  width: 248px;
+  height: 196px;
+}
+
+.minimap .minimap-fold {
+  display: none;
 }
 
 .minimap-levels {
@@ -694,7 +825,6 @@ input {
   border: 1px solid var(--border);
   font-size: 13px;
   white-space: nowrap;
-  transform: translate(14px, 14px);
   transition: opacity 0.15s;
 }
 
@@ -824,20 +954,320 @@ input {
   color: var(--text-dim);
 }
 
+/* ---------- touch & small screens ---------- */
+
 @media (max-width: 900px) {
-  .help,
-  .log {
-    display: none;
+  .hud-bottom {
+    width: calc(100vw - 28px);
   }
   .turn-bar {
+    flex: 1;
     flex-wrap: wrap;
     justify-content: center;
-    width: calc(100vw - 28px);
   }
   .turn-bar .hint {
     display: none;
   }
   .players {
     min-width: 0;
+  }
+}
+
+@media (max-width: 900px), (pointer: coarse) {
+  .help,
+  .log {
+    display: none;
+  }
+}
+
+@media (pointer: coarse), (max-width: 640px), (max-height: 500px) {
+  .camera-controls {
+    display: flex;
+  }
+  .camera-controls .btn.icon {
+    width: 46px;
+    height: 46px;
+    font-size: 22px;
+  }
+  .level-button {
+    min-width: 42px;
+    min-height: 36px;
+    font-size: 14px;
+  }
+  .tooltip {
+    white-space: normal;
+    max-width: min(320px, calc(100vw - 16px));
+    text-align: center;
+  }
+}
+
+/* Phones, portrait and landscape: compact top bar, menu, foldable minimap. */
+@media (max-width: 640px), (max-height: 500px) {
+  .hud-top {
+    top: var(--inset-top);
+    left: var(--inset-left);
+    right: var(--inset-right);
+    gap: 8px;
+  }
+  .title-chip,
+  .hud-actions .restart,
+  .fps {
+    display: none;
+  }
+  .hud-actions .menu-button {
+    display: inline-grid;
+  }
+  .hud-menu.open {
+    display: flex;
+  }
+  .hud-actions .btn.icon {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+  }
+  .hud-left {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .hud-right {
+    flex: 0 0 auto;
+    gap: 8px;
+  }
+  .players {
+    padding: 5px;
+    gap: 3px;
+  }
+  .player {
+    padding: 4px 8px 4px 5px;
+    gap: 8px;
+  }
+  .player .dot {
+    width: 24px;
+    height: 24px;
+    font-size: 13px;
+  }
+  .player .info {
+    min-width: 0;
+  }
+  .player .hero {
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .player .who,
+  .player .state:not(.offline) {
+    display: none;
+  }
+  .player.you .info::after {
+    content: 'du';
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .objective {
+    display: grid;
+    grid-template-columns: auto auto;
+    justify-content: start;
+    align-items: baseline;
+    column-gap: 8px;
+    min-width: 0;
+    padding: 6px 10px;
+  }
+  .objective .text {
+    margin: 0 0 5px;
+    font-size: 14px;
+  }
+  .objective .progress {
+    grid-column: 1 / -1;
+    min-width: 100px;
+  }
+  .objective .goal {
+    display: none;
+  }
+  .objective .text:has(.count:empty) .goal {
+    display: inline;
+    font-size: 12px;
+  }
+  .objective .count::before {
+    content: none !important;
+  }
+  .minimap {
+    padding: 4px;
+  }
+  .minimap canvas {
+    width: min(132px, 34vw);
+    height: auto;
+    aspect-ratio: 248 / 196;
+  }
+  .minimap .btn.minimap-fold {
+    display: inline-grid;
+    position: absolute;
+    left: 4px;
+    top: 4px;
+    z-index: 1;
+    width: 34px;
+    height: 34px;
+    font-size: 18px;
+  }
+  .minimap.collapsed canvas {
+    display: none;
+  }
+  .minimap.collapsed .btn.minimap-fold {
+    position: static;
+    width: 44px;
+    height: 44px;
+  }
+  /* Smaller name tags: on a phone they would cover the figures. */
+  .world-label {
+    padding: 2px 8px;
+    border-width: 1.5px;
+    font-size: 11px;
+  }
+  .world-label.monster {
+    font-size: 10px;
+  }
+  .hud-bottom {
+    left: var(--inset-left);
+    right: var(--inset-right);
+    bottom: var(--inset-bottom);
+    width: auto;
+    transform: none;
+  }
+  .turn-bar {
+    padding: 8px 10px 8px 14px;
+    gap: 10px;
+  }
+  .turn-bar .who {
+    font-size: 14px;
+  }
+  .turn-bar .btn {
+    padding: 10px 14px;
+    font-size: 15px;
+  }
+  .budget-row .caption {
+    width: auto;
+    min-width: 58px;
+  }
+  .pip {
+    width: 11px;
+    height: 11px;
+  }
+  .pip.action {
+    width: 14px;
+  }
+  /* Messages above the bottom bar, one line each; banners smaller. */
+  .toasts {
+    top: auto;
+    bottom: calc(var(--hud-bottom, 120px) + var(--inset-bottom) + 12px);
+    width: calc(100vw - 32px);
+  }
+  .toast {
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 13px;
+  }
+  .level-flash {
+    top: 30%;
+  }
+  .banner {
+    top: 38%;
+    width: max-content;
+    max-width: calc(100vw - 32px);
+    padding: 12px 22px;
+  }
+  .banner .big {
+    font-size: 24px;
+  }
+  .banner .small {
+    font-size: 14px;
+  }
+  .connection {
+    top: auto;
+    bottom: calc(var(--hud-bottom, 120px) + var(--inset-bottom) + 12px);
+    max-width: calc(100vw - 32px);
+  }
+}
+
+/* Portrait phones: camera buttons above a full-width turn bar (budget left, end-turn right). */
+@media (max-width: 640px) {
+  .hud-bottom {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .camera-controls {
+    align-self: flex-start;
+  }
+  .turn-bar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 6px 12px;
+  }
+  .turn-bar > :first-child {
+    grid-column: 1;
+  }
+  .turn-bar .budget {
+    grid-column: 1;
+  }
+  .turn-bar > .btn {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
+
+/* Landscape phones: slim status line on top, thumb controls in the bottom corners. */
+@media (max-height: 500px) {
+  .players {
+    flex-direction: row;
+  }
+  .hud-right {
+    display: grid;
+    grid-template-columns: auto auto;
+    justify-items: end;
+    align-items: start;
+    gap: 6px 8px;
+  }
+  .objective {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .hud-actions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .minimap {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .minimap canvas {
+    width: 112px;
+  }
+  .hud-bottom {
+    justify-content: space-between;
+  }
+  .turn-bar {
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+  }
+  .banner {
+    top: 40%;
+  }
+  .lobby-card {
+    padding: 18px 24px 16px;
+  }
+  .logo {
+    font-size: 40px;
+  }
+  .subtitle {
+    margin: 2px 0 14px;
+  }
+  .field {
+    margin-bottom: 10px;
+  }
+  .lobby-foot {
+    margin-top: 10px;
   }
 }

@@ -10,7 +10,7 @@ import {
   type GameView,
   type Position,
 } from '@dungeon/shared';
-import { button, el } from './dom.ts';
+import { button, el, iconButton } from './dom.ts';
 
 /** Display name of a storey. */
 export function levelName(level: number): string {
@@ -50,6 +50,9 @@ interface StairsShape {
 
 const WIDTH = 248;
 const HEIGHT = 196;
+/** Folded map outline (static markup) for the "show map" button. */
+const MAP_ICON =
+  '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z M9 4v13.5 M15 6.5V20"/></svg>';
 const PADDING = 12;
 /** Vertical spacing of storeys in tile units (exaggerated so stacked levels separate). */
 const LEVEL_GAP = 4.5;
@@ -93,15 +96,29 @@ export class Minimap {
   private focus = 0;
   private signature = '';
   private structure = '';
+  /** Displayed canvas width in CSS pixels; 0 while folded away or hidden. */
+  private displayWidth = 0;
 
   constructor(private readonly handlers: MinimapHandlers) {
     this.root = el('div', 'panel minimap');
+    // Displayed size comes from styles.css (smaller on phones); drawing uses WIDTH × HEIGHT units.
     this.canvas = el('canvas');
-    this.canvas.style.width = `${WIDTH}px`;
-    this.canvas.style.height = `${HEIGHT}px`;
     this.ctx = this.canvas.getContext('2d')!;
+    // Observed rather than read per frame, which would force a style recalculation.
+    new ResizeObserver(([entry]) => {
+      this.displayWidth = entry?.contentRect.width ?? 0;
+      this.signature = '';
+    }).observe(this.canvas);
     this.levelBar = el('div', 'minimap-levels');
-    this.root.append(this.canvas, this.levelBar);
+    // Phones only (styles.css): fold the map away, the storey buttons stay.
+    const fold = iconButton('–', 'Karte einklappen', 'minimap-fold', () => {
+      const collapsed = this.root.classList.toggle('collapsed');
+      if (collapsed) fold.innerHTML = MAP_ICON;
+      else fold.textContent = '–';
+      fold.title = collapsed ? 'Karte zeigen' : 'Karte einklappen';
+      fold.setAttribute('aria-label', fold.title);
+    });
+    this.root.append(fold, this.canvas, this.levelBar);
   }
 
   /** Rebuilds the outlines from a new view (cheap; derived like the 3D walls). */
@@ -160,6 +177,7 @@ export class Minimap {
     const signature = [
       this.structure,
       this.focus,
+      this.displayWidth,
       cameraAlpha.toFixed(3),
       ...figures.map((f) => `${f.x.toFixed(2)},${f.y.toFixed(2)},${f.level}`),
     ].join('|');
@@ -189,13 +207,19 @@ export class Minimap {
   }
 
   private draw(alpha: number, figures: readonly MinimapFigure[]): void {
+    // Folded away (display: none): nothing to draw.
+    if (this.displayWidth === 0) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    if (this.canvas.width !== WIDTH * dpr) {
-      this.canvas.width = WIDTH * dpr;
-      this.canvas.height = HEIGHT * dpr;
+    // Scaled-down map: strokes and dots keep their on-screen size (`k` undoes the scale).
+    const s = this.displayWidth / WIDTH;
+    const k = 1 / s;
+    const pixelWidth = Math.round(WIDTH * s * dpr);
+    if (this.canvas.width !== pixelWidth) {
+      this.canvas.width = pixelWidth;
+      this.canvas.height = Math.round(HEIGHT * s * dpr);
     }
     const ctx = this.ctx;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.setTransform(dpr * s, 0, 0, dpr * s, 0, 0);
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
     if (this.shapes.length === 0) return;
 
@@ -223,7 +247,7 @@ export class Minimap {
     };
     const line = (segments: readonly Segment[], level: number, color: string, width: number) => {
       ctx.strokeStyle = color;
-      ctx.lineWidth = width;
+      ctx.lineWidth = width * k;
       ctx.beginPath();
       for (const [ax, ay, bx, by] of segments) {
         ctx.moveTo(...project(ax, ay, level));
@@ -238,7 +262,7 @@ export class Minimap {
     const x1 = this.bounds.width - 0.5;
     const y1 = this.bounds.height - 0.5;
     const corners: [number, number][] = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-    ctx.setLineDash([2, 3]);
+    ctx.setLineDash([2 * k, 3 * k]);
     for (const level of levels) {
       line(corners.map(([ax, ay], i) => [ax, ay, ...corners[(i + 1) % 4]!] as const), level, COLORS.cage, 1);
     }
@@ -273,8 +297,8 @@ export class Minimap {
 
     for (const stairs of this.stairs) {
       ctx.strokeStyle = stairs.explored ? COLORS.stairsOpen : COLORS.stairsUnknown;
-      ctx.lineWidth = 2;
-      ctx.setLineDash(stairs.explored ? [] : [3, 3]);
+      ctx.lineWidth = 2 * k;
+      ctx.setLineDash(stairs.explored ? [] : [3 * k, 3 * k]);
       ctx.beginPath();
       stairs.route.forEach(([x, y, level], i) => (i === 0 ? ctx.moveTo(...project(x, y, level)) : ctx.lineTo(...project(x, y, level))));
       ctx.stroke();
@@ -284,12 +308,12 @@ export class Minimap {
     for (const f of figures) {
       const [x, y] = project(f.x, f.y, f.level);
       ctx.beginPath();
-      ctx.arc(x, y, f.monster ? 2.2 : 3.4, 0, Math.PI * 2);
+      ctx.arc(x, y, (f.monster ? 2.2 : 3.4) * k, 0, Math.PI * 2);
       ctx.fillStyle = f.monster ? COLORS.monster : f.color;
       ctx.globalAlpha = f.level === this.focus ? 1 : 0.55;
       ctx.fill();
       if (!f.monster) {
-        ctx.lineWidth = 1;
+        ctx.lineWidth = k;
         ctx.strokeStyle = 'rgba(15, 10, 30, 0.9)';
         ctx.stroke();
       }
