@@ -145,13 +145,18 @@ export interface HeroStartDefinition {
   readonly facing: Direction;
 }
 
-export const VICTORY_TYPE_VALUES = ['revealAllAreas', 'visitAllAreas'] as const;
-/** `revealAllAreas`: every area discovered. `visitAllAreas`: every area discovered and entered by a hero. */
+export const VICTORY_TYPE_VALUES = ['revealAllAreas', 'visitAllAreas', 'clearDungeon'] as const;
+/**
+ * `revealAllAreas`: every area discovered. `visitAllAreas`: every area discovered and entered by a hero.
+ * `clearDungeon`: every area discovered and every monster defeated.
+ */
 export type VictoryCondition = { readonly type: (typeof VICTORY_TYPE_VALUES)[number] };
 
 export interface RuleParameters {
   readonly movementPerTurn: number;
   readonly actionsPerTurn: number;
+  /** Steps each awake monster may walk in the monster phase at the end of a round (0: monsters stay put). */
+  readonly monsterMovementPerTurn: number;
 }
 
 export interface DungeonDefinition {
@@ -245,6 +250,8 @@ export interface ObjectiveView {
   /** Areas a hero has stood in at least once (start area included). */
   readonly visitedAreas: number;
   readonly totalAreas: number;
+  /** Monsters defeated so far. How many remain hidden is not told (M6); visible ones are in `monsters`. */
+  readonly defeatedMonsters: number;
   readonly completed: boolean;
 }
 

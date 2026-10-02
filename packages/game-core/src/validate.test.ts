@@ -95,6 +95,23 @@ describe('validateDungeon', () => {
     const hallOnly = withChanges({ areas: [hall], doors: [], stairs: [], props: [], wallDecor: [], monsters: [] });
     expect(validateDungeon({ ...hallOnly, victory: { type: 'revealAllAreas' } })).toContain('Siegbedingung ist schon zu Beginn erfüllt');
     expect(validateDungeon({ ...hallOnly, victory: { type: 'visitAllAreas' } })).toContain('Siegbedingung ist schon zu Beginn erfüllt');
+    expect(validateDungeon({ ...hallOnly, victory: { type: 'clearDungeon' } })).toContain('Siegbedingung ist schon zu Beginn erfüllt');
+  });
+
+  it('requires the monster movement rule and every monster to be within a strike for clearDungeon', () => {
+    const { monsterMovementPerTurn: _omitted, ...rules } = PROTOTYPE_DUNGEON.rules;
+    expect(validateDungeon(malformed({ rules }))).toContain('rules.monsterMovementPerTurn: Ganzzahl ≥ 0 erwartet');
+    // A monster walled in by crates (and the crypt's west wall) can never be struck.
+    const crates = [
+      { x: 1, y: 13 },
+      { x: 2, y: 14 },
+      { x: 1, y: 15 },
+    ].map((p, i) => ({ id: `crate-${i}`, kind: 'crates' as const, position: { ...p, level: 0 }, facing: 'S' as const }));
+    const cornered = withChanges({
+      props: [...PROTOTYPE_DUNGEON.props, ...crates],
+      monsters: [...PROTOTYPE_DUNGEON.monsters, { id: 'monster-9', kind: 'skeletonMinion', name: 'X', position: { x: 1, y: 14, level: 0 }, facing: 'S' }],
+    });
+    expect(validateDungeon(cornered)).toContain('Monster monster-9 ist für keinen Helden angreifbar');
   });
 
   it('detects non-orthogonal door edges', () => {

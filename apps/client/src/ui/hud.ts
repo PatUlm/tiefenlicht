@@ -143,7 +143,7 @@ export class Hud {
     this.logBox = el('div', 'panel log');
     const help = el('div', 'panel help');
     for (const [key, text] of [
-      ['Klick', 'Laufen / Tür / Treppe'],
+      ['Klick', 'Laufen / Tür / Treppe / Angriff'],
       ['Ziehen', 'Kamera schwenken'],
       ['Rad', 'Zoomen'],
       ['Q E', 'Ansicht drehen'],
@@ -230,13 +230,25 @@ export class Hud {
 
     const o = view.objective;
     const visit = o.type === 'visitAllAreas';
+    const clear = o.type === 'clearDungeon';
     // Visit objective: entered areas are full, discovered but not yet entered ones half lit.
     const done = visit ? o.visitedAreas : o.revealedAreas;
     // Goal and count separately: phones show only the count (styles.css).
     this.objectiveText.replaceChildren(
-      el('span', 'goal', o.completed ? 'Gewölbe erkundet! ✨' : visit ? 'Alle Bereiche betreten' : 'Erkunde das Gewölbe'),
+      el(
+        'span',
+        'goal',
+        o.completed ? (clear ? 'Gewölbe befreit! ✨' : 'Gewölbe erkundet! ✨') : visit ? 'Alle Bereiche betreten' : clear ? 'Alles entdecken & besiegen' : 'Erkunde das Gewölbe',
+      ),
       el('span', 'count', o.completed ? '' : `${done}/${o.totalAreas}`),
     );
+    // Monsters: defeated of those met so far (hidden ones are not counted, M6).
+    const metMonsters = o.defeatedMonsters + view.monsters.length;
+    if (clear && !o.completed && metMonsters > 0) {
+      const foes = el('span', 'foes', `⚔ ${o.defeatedMonsters}/${metMonsters}`);
+      foes.title = 'Besiegte Gegner von den bisher entdeckten';
+      this.objectiveText.append(foes);
+    }
     this.progress.replaceChildren(
       ...Array.from({ length: o.totalAreas }, (_, i) => el('span', i < done ? 'done' : visit && i < o.revealedAreas ? 'seen' : '')),
     );
@@ -255,8 +267,8 @@ export class Hud {
         ? 'Verbindung wird wiederhergestellt …'
         : state.canStillAct
           ? coarsePointer.matches
-            ? 'Tippe ein leuchtendes Feld zum Laufen. Steht dein Held an einer Tür oder Treppe, tippe sie an.'
-            : 'Klicke ein leuchtendes Feld zum Laufen. Steht dein Held an einer Tür oder Treppe, klicke sie an.'
+            ? 'Tippe ein leuchtendes Feld zum Laufen. Steht dein Held an einer Tür, einer Treppe oder neben einem Gegner, tippe darauf.'
+            : 'Klicke ein leuchtendes Feld zum Laufen. Steht dein Held an einer Tür, einer Treppe oder neben einem Gegner, klicke darauf.'
           : 'Nichts mehr zu tun – beende deinen Zug.';
     } else {
       this.turnWho.textContent = `Runde ${turn.round} · ${activeHero?.name ?? '…'} ist am Zug`;
@@ -336,9 +348,11 @@ export class Hud {
     const summary =
       objective.type === 'visitAllAreas'
         ? `Ihr habt alle ${objective.totalAreas} Bereiche aufgedeckt und betreten. Jeder Winkel ist erkundet.`
-        : 'Ihr habt alle Räume entdeckt.';
+        : objective.type === 'clearDungeon'
+          ? `Ihr habt alle ${objective.totalAreas} Bereiche entdeckt und alle ${objective.defeatedMonsters} Gegner besiegt.`
+          : 'Ihr habt alle Räume entdeckt.';
     dialog.append(
-      el('h2', undefined, 'Gewölbe erkundet!'),
+      el('h2', undefined, objective.type === 'clearDungeon' ? 'Gewölbe befreit!' : 'Gewölbe erkundet!'),
       el('p', undefined, `${summary} Schaut euch in Ruhe um – oder startet eine neue Partie.`),
     );
     const row = el('div', 'row');

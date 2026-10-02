@@ -1,6 +1,7 @@
 import { Color4, Matrix, Vector3 } from '@babylonjs/core';
 import {
   Board,
+  attackableMonsters,
   canStillAct,
   computeReachable,
   explorableStairs,
@@ -79,6 +80,8 @@ export class GameController {
   private reachable = new Map<string, ReachableTile>();
   private openable = new Set<DoorId>();
   private explorable = new Set<StairsId>();
+  /** Monsters the own hero can strike right now (M10). */
+  private attackable = new Set<CharacterId>();
   /** Stairs whose omen (M8 presentation) has been played in this game ... */
   private readonly omensShown = new Set<StairsId>();
   /** ... identified by game ID and restart count, so a reconnect keeps them and a restart resets them. */
@@ -313,6 +316,7 @@ export class GameController {
     this.d.overlay.clear();
     for (const c of this.characters.values()) c.dispose();
     this.characters.clear();
+    this.follow = null;
     const mine = this.myHero(view);
     this.d.world.setFocusLevel(mine?.position.level ?? 0);
     for (const area of view.areas) {
@@ -331,11 +335,14 @@ export class GameController {
    * animation fails or hangs, so a client can never get stuck on an old turn (M9).
    */
   private async playUpdate(events: readonly GameEvent[], view: GameView): Promise<void> {
+    const generation = this.updateGeneration;
     try {
-      await withTimeout(this.animateAll(events, view), ANIMATION_TIMEOUT_MS);
+      await withTimeout(this.animateAll(events, view, generation), animationBudget(events));
       this.syncCharacters(view);
     } catch (err) {
       console.error('animation failed, falling back to snapshot', err);
+      // Abandon the running animations: they stop at their next event.
+      this.updateGeneration++;
       await this.rebuild(view);
     } finally {
       this.updateGeneration++;
@@ -345,8 +352,9 @@ export class GameController {
     }
   }
 
-  private async animateAll(events: readonly GameEvent[], view: GameView): Promise<void> {
+  private async animateAll(events: readonly GameEvent[], view: GameView, generation: number): Promise<void> {
     for (const [i, event] of events.entries()) {
+      if (generation !== this.updateGeneration) return;
       if (event.type === 'GAME_RESTARTED') {
         await this.rebuild(view);
         this.d.hud.closeOverlay();
@@ -408,7 +416,9 @@ export class GameController {
               }
             : undefined;
         await character.walk(event.path, styleBetween, onStep);
-        this.follow = null;
+        if (this.follow === character) this.follow = null;
+        // Abandoned update (timeout): the snapshot has taken over the camera and figures.
+        if (generation !== this.updateGeneration) break;
         // The last step may have changed the storey without a frame in between.
         world.setFocusLevel(character.tile.level);
         await this.playOmens(character, from, event.path, view);
@@ -456,6 +466,32 @@ export class GameController {
         // When the hero walks over right after (stairs), the camera stays on the new level.
         await this.revealArea(event, view, later.some((e) => e.type === 'CHARACTER_MOVED'));
         break;
+      case 'MONSTER_DEFEATED': {
+        const hero = this.characters.get(event.characterId);
+        const monster = this.characters.get(event.monsterId);
+        hud.log(`${hero?.spec.name ?? 'Ein Held'} besiegt ${monster?.spec.name ?? 'einen Gegner'}.`);
+        if (monster) world.focus(monster.root.position);
+        const heroView = view.heroes.find((h) => h.id === event.characterId);
+        if (hero && heroView) await hero.turnTo(heroView.facing);
+        const swing = hero?.strike();
+        // The monster falls as the blow lands.
+        await wait(world.scene, 380);
+        if (monster) {
+          await monster.die();
+          // Only while still in the cast: after an abandoned update a snapshot has rebuilt (and disposed) it.
+          if (this.characters.get(event.monsterId) === monster) {
+            monster.dispose();
+            this.characters.delete(event.monsterId);
+          }
+        }
+        await swing;
+        break;
+      }
+      case 'MONSTER_PHASE':
+        hud.banner('Die Gegner ziehen', `Ende von Runde ${event.round}`, 1600);
+        hud.log('Die Gegner ziehen.');
+        await wait(world.scene, 700);
+        break;
       case 'TURN_STARTED': {
         const player = view.players.find((p) => p.id === event.playerId);
         const hero = this.characters.get(player?.heroId ?? '');
@@ -471,7 +507,7 @@ export class GameController {
         for (const c of this.characters.values()) {
           if (!c.spec.monster) effects.burst(c.root.position.add(new Vector3(0, 3, 0)), rgb(1, 0.9, 0.4), rgb(1, 0.5, 0.8), 120, 7, 0.5);
         }
-        hud.log('Das Gewölbe ist vollständig erkundet!');
+        hud.log(view.objective.type === 'clearDungeon' ? 'Das Gewölbe ist erkundet und von allen Gegnern befreit!' : 'Das Gewölbe ist vollständig erkundet!');
         await wait(world.scene, 900);
         hud.showVictory(view.objective);
         break;
@@ -602,12 +638,18 @@ export class GameController {
     this.reachable = new Map();
     this.openable = new Set();
     this.explorable = new Set();
+    this.setAttackable(new Set());
     this.d.overlay.setReachable([]);
     this.d.overlay.setPath([]);
     this.d.overlay.setHover(null, false);
     this.d.dungeon.setOpenableDoors(this.openable);
     this.d.dungeon.setExplorableStairs(this.explorable);
     this.d.hud.tooltipAt(null);
+  }
+
+  private setAttackable(ids: Set<CharacterId>): void {
+    this.attackable = ids;
+    for (const c of this.characters.values()) if (c.spec.monster) c.setTargetable(ids.has(c.spec.id));
   }
 
   private refreshInteraction(): void {
@@ -628,6 +670,7 @@ export class GameController {
     this.reachable = computeReachable(new Board(view), hero.id, hero.position, view.turn!.movementLeft);
     this.openable = new Set(openableDoors(view, you).map((d) => d.id));
     this.explorable = new Set(explorableStairs(view, you).map((s) => s.id));
+    this.setAttackable(new Set(attackableMonsters(view, you).map((m) => m.id)));
     const focus = this.d.world.focusLevel;
     this.d.overlay.setReachable([...this.reachable.values()].map((r) => r.position).filter((p) => p.level === focus));
     this.d.dungeon.setOpenableDoors(this.openable);
@@ -648,9 +691,9 @@ export class GameController {
   }
 
   /**
-   * Resolves what the pointer means. Door and stairs pick volumes can cover floor
-   * tiles next to them, so priority is: openable door › explorable stairs ›
-   * reachable tile › other. Tiles are picked on the floor of the focus level.
+   * Resolves what the pointer means. Door, stairs and figure pick volumes can cover
+   * floor tiles next to them, so priority is: openable door › explorable stairs ›
+   * attackable monster › reachable tile › other. Tiles are picked on the floor of the focus level.
    */
   private pickAt(x: number, y: number): { door?: DoorId; stairs?: StairsId; character?: CharacterId; tile?: Position } {
     const { scene, camera, focusLevel } = this.d.world;
@@ -666,6 +709,7 @@ export class GameController {
     const character = hit?.pickedMesh?.metadata?.characterId as CharacterId | undefined;
     if (door && this.openable.has(door)) return { door };
     if (stairs && this.explorable.has(stairs)) return { stairs };
+    if (character && this.attackable.has(character)) return { character, tile: this.characters.get(character)?.tile };
     if (tile && this.reachable.has(posKey(tile))) return { tile };
     if (door) return { door };
     if (stairs) return { stairs };
@@ -730,6 +774,16 @@ export class GameController {
       }
       return;
     }
+    const monster = view.monsters.find((m) => m.id === target.character);
+    if (monster) {
+      const attackable = this.attackable.has(monster.id);
+      overlay.setPath([]);
+      overlay.setHover(monster.position, attackable);
+      if (attackable) hud.tooltipAt(`${monster.name} angreifen (Aktion) – ein Schlag besiegt ihn`, x, y, 'good');
+      else if ((view.turn?.actionsLeft ?? 0) <= 0) hud.tooltipAt('Keine Aktion mehr in diesem Zug', x, y, 'bad');
+      else hud.tooltipAt(`Stelle dich direkt neben ${monster.name}`, x, y, 'bad');
+      return;
+    }
     const tile = target.tile;
     if (!tile || !new Board(view).hasTile(tile)) {
       overlay.setHover(null, false);
@@ -775,6 +829,10 @@ export class GameController {
       const reach = stairs.explored ? this.stairsTarget(stairs) : undefined;
       if (!reach) return false;
       this.request({ type: 'MOVE_CHARACTER', characterId: hero.id, target: reach.position });
+      return true;
+    }
+    if (target.character && this.attackable.has(target.character)) {
+      this.request({ type: 'ATTACK', characterId: hero.id, targetId: target.character });
       return true;
     }
     if (target.tile && this.reachable.has(posKey(target.tile))) {
@@ -959,6 +1017,13 @@ function rgb(r: number, g: number, b: number): Color4 {
 
 /** Upper bound for one update's animations (a reveal takes ~4 s). */
 const ANIMATION_TIMEOUT_MS = 20_000;
+/** Time allowed per step of a figure, a ladder climb included. */
+const STEP_BUDGET_MS = 1_500;
+
+/** Animation time an update may take: grows with the steps walked (e.g. many monsters in one phase). */
+function animationBudget(events: readonly GameEvent[]): number {
+  return events.reduce((ms, e) => ms + (e.type === 'CHARACTER_MOVED' ? e.path.length * STEP_BUDGET_MS : 0), ANIMATION_TIMEOUT_MS);
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {

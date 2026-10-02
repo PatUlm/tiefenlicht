@@ -19,6 +19,7 @@ import {
   type TurnView,
 } from '@dungeon/shared';
 import { Board, stairsEnds, type BoardDoor, type BoardStairs } from './board.ts';
+import { moveMonsters } from './monsters.ts';
 import { computeReachable, findPath } from './movement.ts';
 import { HERO_TEMPLATES, heroIdForSlot, type GameState, type HeroState, type PlayerState } from './state.ts';
 import { areasOfDoor, areasOfStairs, buildTileAreaIndex, createView } from './visibility.ts';
@@ -42,6 +43,7 @@ const REJECTION_MESSAGES: Record<RejectionCode, string> = {
   UNKNOWN_STAIRS: 'Unbekannte Treppe.',
   STAIRS_ALREADY_EXPLORED: 'Die Treppe ist bereits erkundet.',
   STAIRS_NOT_ADJACENT: 'Stelle dich direkt vor die Treppe.',
+  TARGET_NOT_ADJACENT: 'Stelle dich direkt neben den Gegner.',
   NO_ACTION_LEFT: 'Deine Aktion für diesen Zug ist verbraucht.',
 };
 
@@ -220,6 +222,12 @@ export function applyAction(state: GameState, playerId: PlayerId, action: GameAc
       if (hero.ownerId !== playerId) return reject('NOT_YOUR_CHARACTER');
       return exploreStairs(state, turn, hero, action.stairsId);
     }
+    case 'ATTACK': {
+      const hero = state.heroes.find((h) => h.id === action.characterId);
+      if (!hero) return reject('UNKNOWN_CHARACTER');
+      if (hero.ownerId !== playerId) return reject('NOT_YOUR_CHARACTER');
+      return attack(state, turn, hero, action.targetId);
+    }
     default: {
       // Compile-time exhaustiveness; at runtime a stray message type is rejected, never thrown.
       const unknownAction: never = action;
@@ -313,6 +321,41 @@ function exploreStairs(state: GameState, turn: TurnView, hero: HeroState, stairs
 }
 
 /**
+ * True if a figure on `from` could strike one on `to`: one step apart over a passable
+ * edge, so not through a wall or closed door, but along explored stairs (M10).
+ */
+export function canStrike(board: Board, from: Position, to: Position): boolean {
+  return board.isEdgePassable(from, to);
+}
+
+/** Direction a hero faces to strike from `from` at `to` (along the flight for stairs). */
+function facingTowards(board: Board, from: Position, to: Position): Direction {
+  const stairs = board.stairsBetween(from, to);
+  if (stairs) return samePos(stairs.bottom, from) ? stairs.direction : OPPOSITE[stairs.direction];
+  return directionTo(from, to);
+}
+
+function attack(state: GameState, turn: TurnView, hero: HeroState, targetId: string): ActionResult {
+  // Judged on the filtered view: a hidden monster is as unknown as a non-existing one (M6).
+  const view = createView(state);
+  const monster = view.monsters.find((m) => m.id === targetId);
+  if (!monster) return reject('UNKNOWN_CHARACTER');
+  const board = new Board(view);
+  if (!canStrike(board, hero.position, monster.position)) return reject('TARGET_NOT_ADJACENT');
+  if (turn.actionsLeft <= 0) return reject('NO_ACTION_LEFT');
+
+  const facing = facingTowards(board, hero.position, monster.position);
+  const next: GameState = {
+    ...state,
+    version: state.version + 1,
+    monsters: state.monsters.filter((m) => m.id !== monster.id),
+    heroes: state.heroes.map((h) => (h.id === hero.id ? { ...h, facing } : h)),
+    turn: { ...turn, actionsLeft: turn.actionsLeft - 1 },
+  };
+  return finish(next, [{ type: 'MONSTER_DEFEATED', monsterId: monster.id, characterId: hero.id }]);
+}
+
+/**
  * Shared part of opening a door and exploring stairs (M5): uses the action and
  * reveals the areas behind the passage. The caller checks the objective (`finish`).
  */
@@ -353,14 +396,9 @@ function finish(state: GameState, events: GameEvent[]): ActionResult {
   if (state.objectiveCompleted) return { ok: true, state, events };
   const revealed = new Set(state.revealedAreas);
   const visited = new Set(state.visitedAreas);
-  const done = state.dungeon.areas.every((a) => {
-    switch (state.dungeon.victory.type) {
-      case 'revealAllAreas':
-        return revealed.has(a.id);
-      case 'visitAllAreas':
-        return visited.has(a.id);
-    }
-  });
+  const type = state.dungeon.victory.type;
+  const areasDone = state.dungeon.areas.every((a) => (type === 'visitAllAreas' ? visited : revealed).has(a.id));
+  const done = areasDone && (type !== 'clearDungeon' || state.monsters.length === 0);
   return { ok: true, state: { ...state, objectiveCompleted: done }, events: done ? [...events, { type: 'GAME_WON' }] : events };
 }
 
@@ -369,11 +407,13 @@ function endTurn(state: GameState, turn: TurnView): ActionResult {
   const index = players.findIndex((p) => p.id === turn.activePlayerId);
   const nextIndex = (index + 1) % players.length;
   const next = players[nextIndex]!;
+  // After both players the round ends with the monster phase (M10), all in one update.
+  const monsterPhase = nextIndex === 0 ? moveMonsters(state, turn.round) : { state, events: [] };
   const round = nextIndex === 0 ? turn.round + 1 : turn.round;
   return {
     ok: true,
-    state: { ...state, version: state.version + 1, turn: freshTurn(state.dungeon, next.id, round) },
-    events: [{ type: 'TURN_STARTED', playerId: next.id, round }],
+    state: { ...monsterPhase.state, version: monsterPhase.state.version + 1, turn: freshTurn(state.dungeon, next.id, round) },
+    events: [...monsterPhase.events, { type: 'TURN_STARTED', playerId: next.id, round }],
   };
 }
 
@@ -400,21 +440,31 @@ export function explorableStairs(view: GameView, playerId: PlayerId): BoardStair
   return hero ? view.stairs.filter((s) => !s.explored && isAtStairs(s, hero.position)) : [];
 }
 
+/** Monsters the player's hero could strike right now (M10). */
+export function attackableMonsters(view: GameView, playerId: PlayerId): GameView['monsters'] {
+  const hero = heroWithAction(view, playerId);
+  if (!hero) return [];
+  const board = new Board(view);
+  return view.monsters.filter((m) => canStrike(board, hero.position, m.position));
+}
+
 /**
  * M3 UI hint: true if the active player can still reach a tile, or can still use
- * the action on a closed door or unexplored stairs from the current or a reachable tile.
+ * the action on a closed door, unexplored stairs or a monster from the current or a reachable tile.
  */
 export function canStillAct(view: GameView, playerId: PlayerId): boolean {
   const turn = view.turn;
   if (view.phase !== 'playing' || !turn || turn.activePlayerId !== playerId) return false;
   const hero = view.heroes.find((h) => h.ownerId === playerId);
   if (!hero) return false;
-  const reachable = computeReachable(new Board(view), hero.id, hero.position, turn.movementLeft);
+  const board = new Board(view);
+  const reachable = computeReachable(board, hero.id, hero.position, turn.movementLeft);
   if (reachable.size > 0) return true;
   if (turn.actionsLeft <= 0) return false;
   const standable = [hero.position, ...[...reachable.values()].map((r) => r.position)];
   return (
     view.doors.some((d) => !d.open && standable.some((p) => isAdjacentToDoor(d, p))) ||
-    view.stairs.some((s) => !s.explored && standable.some((p) => isAtStairs(s, p)))
+    view.stairs.some((s) => !s.explored && standable.some((p) => isAtStairs(s, p))) ||
+    view.monsters.some((m) => standable.some((p) => canStrike(board, p, m.position)))
   );
 }

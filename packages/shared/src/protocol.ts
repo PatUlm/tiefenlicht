@@ -23,6 +23,13 @@ export interface ExploreStairsAction {
   readonly stairsId: StairsId;
 }
 
+export interface AttackAction {
+  readonly type: 'ATTACK';
+  readonly characterId: CharacterId;
+  /** The monster attacked. */
+  readonly targetId: CharacterId;
+}
+
 export interface EndTurnAction {
   readonly type: 'END_TURN';
 }
@@ -31,7 +38,7 @@ export interface RestartGameAction {
   readonly type: 'RESTART_GAME';
 }
 
-export type GameAction = MoveCharacterAction | OpenDoorAction | ExploreStairsAction | EndTurnAction | RestartGameAction;
+export type GameAction = MoveCharacterAction | OpenDoorAction | ExploreStairsAction | AttackAction | EndTurnAction | RestartGameAction;
 
 /** What revealed an area: a door that was opened or stairs that were explored. */
 export type Passage = { readonly kind: 'door'; readonly id: DoorId } | { readonly kind: 'stairs'; readonly id: StairsId };
@@ -58,6 +65,9 @@ export type GameEvent =
       readonly via: Passage;
       readonly monsterIds: readonly CharacterId[];
     }
+  | { readonly type: 'MONSTER_DEFEATED'; readonly monsterId: CharacterId; readonly characterId: CharacterId }
+  /** The monsters move (their CHARACTER_MOVED events follow); only sent if at least one moves. */
+  | { readonly type: 'MONSTER_PHASE'; readonly round: number }
   | { readonly type: 'TURN_STARTED'; readonly playerId: PlayerId; readonly round: number }
   | { readonly type: 'GAME_WON' }
   | { readonly type: 'GAME_RESTARTED'; readonly byPlayerId: PlayerId };
@@ -77,6 +87,7 @@ export type RejectionCode =
   | 'UNKNOWN_STAIRS'
   | 'STAIRS_ALREADY_EXPLORED'
   | 'STAIRS_NOT_ADJACENT'
+  | 'TARGET_NOT_ADJACENT'
   | 'NO_ACTION_LEFT';
 
 // ---------------------------------------------------------------------------
@@ -221,6 +232,9 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     case 'EXPLORE_STAIRS':
       if (!isId(data.characterId) || !isId(data.stairsId)) return null;
       return withRequest({ type: 'EXPLORE_STAIRS', characterId: data.characterId, stairsId: data.stairsId });
+    case 'ATTACK':
+      if (!isId(data.characterId) || !isId(data.targetId)) return null;
+      return withRequest({ type: 'ATTACK', characterId: data.characterId, targetId: data.targetId });
     case 'END_TURN':
       return withRequest({ type: 'END_TURN' });
     case 'RESTART_GAME':

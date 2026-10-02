@@ -1,4 +1,4 @@
-# Tiefenlicht – Tech-Prototyp v0.3
+# Tiefenlicht – Tech-Prototyp v0.4
 
 Rundenbasiertes 3D-Dungeon-Brettspiel im Browser (Arbeitstitel „Tiefenlicht“), umgesetzt
 nach `dungeon-game-concept.md`. Zwei Spieler (Zwerg und Dunkelelf) erkunden gemeinsam
@@ -50,14 +50,18 @@ Clients kehren dann automatisch in die Lobby zurück.
      die andere Ebene; ohne Bewegungspunkt bleibt er stehen. Erkundete Treppen kosten pro
      Durchgang 1 BP. Unerkundete Treppen kündigen
      sich an: aus der Tiefe steigt kalter Hauch, von oben fallen Sternenfunken.
+   - Steht ein Gegner direkt neben dem Held (keine Wand oder geschlossene Tür dazwischen),
+     trägt er einen roten Ring. Ein Klick greift ihn an (Aktion); ein Schlag besiegt ihn.
    - **Zug beenden** per Button oder Leertaste.
-4. Ziel: alle sechs Bereiche entdecken **und betreten**. Danach läuft das Spiel weiter,
-   damit ihr euch in Ruhe umsehen könnt. **Neues Spiel** setzt die Partie jederzeit für beide
-   zurück.
+4. **Gegnerphase:** Haben beide Spieler gezogen, laufen alle wachen Gegner bis zu 3 Felder
+   auf den nächsten Helden zu. Sie greifen nicht an, versperren aber Wege und Türen.
+5. Ziel: alle sechs Bereiche entdecken **und alle Gegner besiegen**. Danach läuft das Spiel
+   weiter, damit ihr euch in Ruhe umsehen könnt. **Neues Spiel** setzt die Partie jederzeit
+   für beide zurück.
 
 | Steuerung | |
 |---|---|
-| Linksklick | Laufen / Tür öffnen / Treppe erkunden oder nehmen |
+| Linksklick | Laufen / Tür öffnen / Treppe erkunden oder nehmen / Gegner angreifen |
 | Ziehen (links/rechts) oder WASD/Pfeiltasten | Kamera schwenken |
 | Mausrad | Zoomen |
 | Q / E | Ansicht um 90° drehen (Wände zur Kamera werden automatisch abgesenkt) |
@@ -125,9 +129,10 @@ einheitlichen Stil, die Figuren sind animiert (Laufen, Interagieren, Erwachen, J
 und die Pakete sind direkt per Git beziehbar. Sarkophag, Bücherregale, Kessel, Kristall
 und Statue-Sockel sind prozedural erzeugt. Font: Fredoka (SIL OFL).
 
-## Bekannte Grenzen v0.3
+## Bekannte Grenzen v0.4
 
-- Kein Kampf, keine Würfel, kein Inventar, keine Monster-KI (laut Konzept bewusst später).
+- Kampf nur als Ein-Schlag-Angriff der Helden; keine Würfel, kein Inventar, keine
+  Lebenspunkte. Gegner nähern sich nur an und greifen nicht an.
 - Spiele liegen nur im Speicher. Ein Server-Neustart beendet alle Partien.
 - Vor einem öffentlichen Deployment fehlen ein Limit für die Spielerstellung pro IP,
   längere Spielcodes und ein Reverse Proxy mit TLS (`ALLOWED_ORIGINS` setzen).

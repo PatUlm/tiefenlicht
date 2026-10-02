@@ -97,6 +97,7 @@ function checkShape(input: unknown): string[] {
   else {
     int(d.rules.movementPerTurn, 'rules.movementPerTurn', 1);
     int(d.rules.actionsPerTurn, 'rules.actionsPerTurn', 1);
+    int(d.rules.monsterMovementPerTurn, 'rules.monsterMovementPerTurn', 0);
   }
   if (!isRecord(d.victory)) err('victory: Objekt erwartet');
   else oneOf(d.victory.type, VICTORY_TYPE_VALUES, 'victory.type');
@@ -348,6 +349,15 @@ function checkInvariants(d: DungeonDefinition): string[] {
     for (const a of d.areas) if (!reachedAreas.has(a.id)) err(`Bereich ${a.id} von Start ${s.slot} unerreichbar`);
   }
 
+  // clearDungeon: a hero must be able to stand next to every monster where it was placed (M10).
+  if (d.victory.type === 'clearDungeon') {
+    const start = d.heroStarts[0]!.position;
+    const standable = [start, ...[...computeReachable(openBoard, 'validator', start, Number.MAX_SAFE_INTEGER).values()].map((r) => r.position)];
+    for (const m of d.monsters) {
+      if (!standable.some((p) => openBoard.isEdgePassable(p, m.position))) err(`Monster ${m.id} ist für keinen Helden angreifbar`);
+    }
+  }
+
   // Victory satisfiable: progressively open every door and explore all stairs that become reachable.
   // Both victory types need every area revealable; visiting then only needs reachability (checked above).
   const revealed = new Set(d.areas.filter((a) => a.initiallyRevealed).map((a) => a.id));
@@ -379,9 +389,9 @@ function checkInvariants(d: DungeonDefinition): string[] {
 
   // An objective met before the first move would never be announced (GAME_WON follows actions only).
   const metAtStart =
-    d.victory.type === 'revealAllAreas'
-      ? d.areas.every((a) => a.initiallyRevealed)
-      : d.areas.every((a) => d.heroStarts.some((s) => tileArea.get(posKey(s.position)) === a.id));
+    d.victory.type === 'visitAllAreas'
+      ? d.areas.every((a) => d.heroStarts.some((s) => tileArea.get(posKey(s.position)) === a.id))
+      : d.areas.every((a) => a.initiallyRevealed) && (d.victory.type === 'revealAllAreas' || d.monsters.length === 0);
   if (metAtStart) err('Siegbedingung ist schon zu Beginn erfüllt');
 
   return errors;

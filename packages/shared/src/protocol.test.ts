@@ -38,6 +38,12 @@ describe('parseClientMessage', () => {
       gameId: 'ABCDE',
       playerToken: '0f8c-11aa',
     });
+    expect(parseClientMessage('{"type":"ATTACK","characterId":"hero-1","targetId":"monster-2","requestId":"r3"}')).toEqual({
+      type: 'ATTACK',
+      characterId: 'hero-1',
+      targetId: 'monster-2',
+      requestId: 'r3',
+    });
     expect(parseClientMessage('{"type":"RESTART_GAME"}')).toEqual({ type: 'RESTART_GAME' });
     expect(parseClientMessage('{"type":"CREATE_GAME","playerName":"Ana"}')).toEqual({ type: 'CREATE_GAME', playerName: 'Ana' });
   });
@@ -74,6 +80,8 @@ describe('parseClientMessage', () => {
       '{"type":"OPEN_DOOR","characterId":"hero-1","doorId":{}}',
       '{"type":"EXPLORE_STAIRS","characterId":"hero-1"}',
       '{"type":"EXPLORE_STAIRS","characterId":"hero-1","stairsId":"a b"}',
+      '{"type":"ATTACK","characterId":"hero-1"}',
+      '{"type":"ATTACK","characterId":"hero-1","targetId":["monster-1"]}',
       '{"type":"CREATE_GAME","playerName":"   "}',
       '{"type":"RESUME_SESSION","gameId":"ABCDE"}',
     ];

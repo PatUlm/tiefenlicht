@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { posKey, type Position } from '@dungeon/shared';
+import { posKey, type DungeonDefinition, type Position } from '@dungeon/shared';
 import { PROTOTYPE_DUNGEON } from './content/index.ts';
-import { addPlayer, applyAction, canStillAct, createGame, explorableStairs, openableDoors, setPlayerConnected } from './game.ts';
+import { addPlayer, applyAction, attackableMonsters, canStillAct, createGame, explorableStairs, openableDoors, setPlayerConnected } from './game.ts';
 import type { GameState } from './state.ts';
 import { act, P1, P2, startedGame } from './test-helpers.ts';
 import { createView } from './visibility.ts';
@@ -10,9 +10,17 @@ const move = (characterId: string, target: Position) => ({ type: 'MOVE_CHARACTER
 const open = (characterId: string, doorId: string) => ({ type: 'OPEN_DOOR', characterId, doorId }) as const;
 const explore = (characterId: string, stairsId: string) => ({ type: 'EXPLORE_STAIRS', characterId, stairsId }) as const;
 const END = { type: 'END_TURN' } as const;
+const attack = (characterId: string, targetId: string) => ({ type: 'ATTACK', characterId, targetId }) as const;
+
+/** The prototype with v0.2 rules: monsters stay put, entering every area wins. Keeps the scripted opening stable. */
+const STATIC_DUNGEON: DungeonDefinition = {
+  ...PROTOTYPE_DUNGEON,
+  victory: { type: 'visitAllAreas' },
+  rules: { ...PROTOTYPE_DUNGEON.rules, monsterMovementPerTurn: 0 },
+};
 
 /** Plays the expected opening from docs/game-mechanics.md M8 up to the given turn. */
-function playOpening(turns: number, from: GameState = startedGame()): GameState {
+function playOpening(turns: number, from: GameState = startedGame(STATIC_DUNGEON)): GameState {
   let s = from;
   const steps: [string, (s: GameState) => GameState][] = [
     [P1, (g) => act(act(act(g, P1, move('hero-1', { x: 9, y: 6, level: 0 })).state, P1, open('hero-1', 'door-1')).state, P1, move('hero-1', { x: 9, y: 9, level: 0 })).state],
@@ -212,7 +220,7 @@ describe('doors and discovery', () => {
   });
 
   it('still supports the reveal-only objective', () => {
-    let s = playOpening(6, startedGame({ ...PROTOTYPE_DUNGEON, victory: { type: 'revealAllAreas' } }));
+    let s = playOpening(6, startedGame({ ...STATIC_DUNGEON, victory: { type: 'revealAllAreas' } }));
     s = act(s, P1, move('hero-1', { x: 8, y: 17, level: 0 })).state;
     s = { ...s, turn: { ...s.turn!, movementLeft: 0 } };
     expect(act(s, P1, explore('hero-1', 'stairs-2')).events.map((e) => e.type)).toEqual(['STAIRS_EXPLORED', 'AREA_REVEALED', 'GAME_WON']);
@@ -275,6 +283,97 @@ describe('stairs', () => {
       ],
     });
     expect(up.state.turn?.movementLeft).toBe(3);
+  });
+});
+
+describe('monsters and combat (M10)', () => {
+  /** Real prototype rules: hero-1 opens the crypt in round 2 and waits in its doorway (4,12); P2 is to end the round. */
+  function cryptOpened(): GameState {
+    let s = startedGame();
+    s = act(act(act(s, P1, move('hero-1', { x: 9, y: 6, level: 0 })).state, P1, open('hero-1', 'door-1')).state, P1, move('hero-1', { x: 9, y: 9, level: 0 })).state;
+    s = act(s, P1, END).state;
+    s = act(act(s, P2, move('hero-2', { x: 10, y: 9, level: 0 })).state, P2, END).state;
+    s = act(act(s, P1, move('hero-1', { x: 4, y: 12, level: 0 })).state, P1, open('hero-1', 'door-2')).state;
+    return act(s, P1, END).state;
+  }
+  /** One more round later: monster-2 stands in the crypt doorway (4,13), right below hero-1; P1 is to move. */
+  const doorwayBlocked = () => act(act(act(cryptOpened(), P2, END).state, P1, END).state, P2, END).state;
+
+  it('dormant monsters in hidden areas do not move', () => {
+    const s = act(startedGame(), P1, END).state;
+    const ended = act(s, P2, END);
+    expect(ended.events).toEqual([{ type: 'TURN_STARTED', playerId: P1, round: 2 }]);
+    expect(ended.state.monsters).toEqual(s.monsters);
+  });
+
+  it('awake monsters walk up to three steps towards the nearest hero once both players have moved', () => {
+    const ended = act(cryptOpened(), P2, END);
+    expect(ended.events).toEqual([
+      { type: 'MONSTER_PHASE', round: 2 },
+      // Around the sarcophagus, then up the crypt.
+      { type: 'CHARACTER_MOVED', characterId: 'monster-1', path: [{ x: 5, y: 18, level: 0 }, { x: 5, y: 17, level: 0 }, { x: 5, y: 16, level: 0 }] },
+      { type: 'CHARACTER_MOVED', characterId: 'monster-2', path: [{ x: 7, y: 14, level: 0 }, { x: 7, y: 13, level: 0 }, { x: 6, y: 13, level: 0 }] },
+      { type: 'TURN_STARTED', playerId: P1, round: 3 },
+    ]);
+    expect(ended.state.monsters.find((m) => m.id === 'monster-2')).toMatchObject({ position: { x: 6, y: 13, level: 0 }, facing: 'W' });
+    // The mage room is still hidden: its monster sleeps.
+    expect(ended.state.monsters.find((m) => m.id === 'monster-3')?.position).toEqual(PROTOTYPE_DUNGEON.monsters[2]!.position);
+  });
+
+  it('a monster next to a hero stays where it is', () => {
+    const s = doorwayBlocked();
+    expect(s.monsters.find((m) => m.id === 'monster-2')?.position).toEqual({ x: 4, y: 13, level: 0 });
+    const ended = act(act(s, P1, END).state, P2, END);
+    expect(ended.events.some((e) => e.type === 'CHARACTER_MOVED' && e.characterId === 'monster-2')).toBe(false);
+  });
+
+  it('a hero strikes an adjacent monster across an open door, using the action', () => {
+    const s = doorwayBlocked();
+    expect(attackableMonsters(createView(s), P1).map((m) => m.id)).toEqual(['monster-2']);
+    const struck = act(s, P1, attack('hero-1', 'monster-2'));
+    expect(struck.events).toEqual([{ type: 'MONSTER_DEFEATED', monsterId: 'monster-2', characterId: 'hero-1' }]);
+    expect(struck.state.monsters.map((m) => m.id)).not.toContain('monster-2');
+    expect(struck.state.heroes[0]).toMatchObject({ position: { x: 4, y: 12, level: 0 }, facing: 'S' });
+    expect(struck.state.turn).toMatchObject({ actionsLeft: 0, movementLeft: 8 });
+    expect(createView(struck.state).objective).toMatchObject({ defeatedMonsters: 1, completed: false });
+    // The way into the crypt is free again.
+    expect(act(struck.state, P1, move('hero-1', { x: 4, y: 13, level: 0 })).state.heroes[0]?.position).toEqual({ x: 4, y: 13, level: 0 });
+  });
+
+  it('rejects strikes on hidden, distant or walled-off monsters and without an action', () => {
+    expect(applyAction(startedGame(), P1, attack('hero-1', 'monster-1'))).toMatchObject({ ok: false, code: 'UNKNOWN_CHARACTER' });
+    expect(applyAction(startedGame(), P1, attack('hero-1', 'monster-99'))).toMatchObject({ ok: false, code: 'UNKNOWN_CHARACTER' });
+    expect(applyAction(startedGame(), P2, attack('hero-2', 'monster-1'))).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
+
+    const s = act(cryptOpened(), P2, END).state; // monster-2 at (6,13), inside the crypt wall
+    expect(applyAction(s, P1, attack('hero-1', 'monster-2'))).toMatchObject({ ok: false, code: 'TARGET_NOT_ADJACENT' });
+    const alongWall = act(s, P1, move('hero-1', { x: 6, y: 12, level: 0 })).state;
+    expect(applyAction(alongWall, P1, attack('hero-1', 'monster-2'))).toMatchObject({ ok: false, code: 'TARGET_NOT_ADJACENT' });
+
+    const noAction = { ...doorwayBlocked(), turn: { ...doorwayBlocked().turn!, actionsLeft: 0 } };
+    expect(applyAction(noAction, P1, attack('hero-1', 'monster-2'))).toMatchObject({ ok: false, code: 'NO_ACTION_LEFT' });
+    expect(attackableMonsters(createView(noAction), P1)).toEqual([]);
+  });
+
+  it('wins once every area is revealed and every monster defeated', () => {
+    const s = doorwayBlocked();
+    const allAreas = PROTOTYPE_DUNGEON.areas.map((a) => a.id);
+    const lastMonster = { ...s, revealedAreas: allAreas, monsters: s.monsters.filter((m) => m.id === 'monster-2') };
+    expect(act(lastMonster, P1, attack('hero-1', 'monster-2')).events.map((e) => e.type)).toEqual(['MONSTER_DEFEATED', 'GAME_WON']);
+
+    // Every monster beaten, but an area still undiscovered: not yet.
+    const areaLeft = { ...lastMonster, revealedAreas: allAreas.filter((id) => id !== 'observatory') };
+    const struck = act(areaLeft, P1, attack('hero-1', 'monster-2'));
+    expect(struck.events.map((e) => e.type)).toEqual(['MONSTER_DEFEATED']);
+    expect(struck.state.objectiveCompleted).toBe(false);
+  });
+
+  it('canStillAct counts a possible strike even without movement left', () => {
+    const s = { ...doorwayBlocked(), turn: { ...doorwayBlocked().turn!, movementLeft: 0 } };
+    // No movement left: only the strike at monster-2 remains.
+    expect(canStillAct(createView(s), P1)).toBe(true);
+    const struck = act(s, P1, attack('hero-1', 'monster-2')).state;
+    expect(canStillAct(createView(struck), P1)).toBe(false);
   });
 });
 

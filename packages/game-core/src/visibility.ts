@@ -99,6 +99,7 @@ export function createView(state: GameState): GameView {
       revealedAreas: state.revealedAreas.length,
       visitedAreas: state.visitedAreas.length,
       totalAreas: dungeon.areas.length,
+      defeatedMonsters: dungeon.monsters.length - state.monsters.length,
       completed: state.objectiveCompleted,
     },
     rules: dungeon.rules,

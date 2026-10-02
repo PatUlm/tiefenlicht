@@ -3,8 +3,8 @@
   "name": "Das Gewölbe der Laternen",
   "width": 20,
   "height": 20,
-  "rules": { "movementPerTurn": 8, "actionsPerTurn": 1 },
-  "victory": { "type": "visitAllAreas" },
+  "rules": { "movementPerTurn": 8, "actionsPerTurn": 1, "monsterMovementPerTurn": 3 },
+  "victory": { "type": "clearDungeon" },
   "areas": [
     {
       "id": "hall",

@@ -556,8 +556,13 @@ input {
   margin: 2px 0 8px;
 }
 
-.objective .count:not(:empty)::before {
+.objective .count:not(:empty)::before,
+.objective .foes::before {
   content: ' · ';
+}
+
+.objective .foes {
+  color: #ffb3c0;
 }
 
 .progress {

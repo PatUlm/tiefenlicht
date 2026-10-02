@@ -54,13 +54,15 @@ bzw. `[R3: …]` markiert. Alle drei Reviews: keine Blocker; alle Major-Findings
   (Konzept §17). Identische Werte.
 - Jeder Spieler steuert genau **eine** Figur. Slots sind 0-basiert (wie `heroStarts[].slot`):
   Slot 0 (Ersteller) → Zwerg, Slot 1 (Beitretender) → Dunkelelf. [R2: m-11]
-- **Monster** sind statisch: kein eigener Zug, keine Bewegung, kein Angriff. Sie blockieren
-  ihr Feld. Reaktion nur präsentational (Erwachen-Animation beim Aufdecken). [R: m-9]
+- **Monster** greifen nicht an. Sie blockieren ihr Feld, erwachen beim Aufdecken ihres
+  Bereichs und ziehen ab v0.3 in der Gegnerphase am Rundenende auf die Helden zu; ein
+  Schlag eines Helden besiegt sie (M10). [R: m-9]
 
 ## M3 Zugstruktur
 
 - Strikt rundenbasiert, feste Reihenfolge: Slot 0 → Slot 1 → Slot 0 …
-  Eine **Runde** ist abgeschlossen, wenn beide Spieler je einen Zug hatten.
+  Eine **Runde** ist abgeschlossen, wenn beide Spieler je einen Zug hatten; danach folgt
+  die **Gegnerphase** (M10), dann beginnt die nächste Runde mit Slot 0.
 - Das Spiel startet erst, wenn beide Spieler beigetreten sind. Slot 0 beginnt.
 - Jeder Zug hat ein Budget (Kartenparameter, v0.1-Karte):
   - **8 Bewegungspunkte** (fest, kein Würfel). [R: M-1/A]
@@ -70,8 +72,8 @@ bzw. `[R3: …]` markiert. Alle drei Reviews: keine Blocker; alle Major-Findings
 - Ein Zug endet **nur explizit** durch „Zug beenden“. Nicht verbrauchte Punkte verfallen.
 - UI-Hinweis „nichts mehr möglich“ (`canStillAct`): `true` genau dann, wenn mit der
   Restbewegung noch ein Feld erreichbar ist **oder** die Aktion verfügbar ist und eine
-  geschlossene Tür bzw. unerkundete Treppe von einem erreichbaren Feld (inkl. aktuellem)
-  aus genutzt werden kann.
+  geschlossene Tür, eine unerkundete Treppe oder ein Monster (Angriff, M10) von einem
+  erreichbaren Feld (inkl. aktuellem) aus genutzt werden kann.
   Sonst wird „Zug beenden“ hervorgehoben. Keine Server-Wirkung. [R: m-7]
 
 ## M4 Bewegung
@@ -133,20 +135,25 @@ bzw. `[R3: …]` markiert. Alle drei Reviews: keine Blocker; alle Major-Findings
 - **Zulässige Metadaten** (bewusst akzeptiert, sie verraten nur den Umfang, nicht den
   Inhalt) [R2: m-8]: `objective.totalAreas` (Fortschrittsanzeige „2/6 entdeckt“),
   fortlaufende Monster-IDs (Lücken deuten weitere Monster an) sowie `width`/`height` der
-  Karte (Kamera-Begrenzung).
+  Karte (Kamera-Begrenzung). `objective.defeatedMonsters` zählt nur besiegte Monster; die
+  Gesamtzahl der Monster wird bewusst **nicht** übertragen (die HUD zeigt „besiegt/bisher
+  entdeckt“).
 - Beim Aufdecken erhält der Client `AREA_REVEALED` und inszeniert:
   Boden → Wände → Props → Licht → Monster erwachen.
 
 ## M7 Spielziel (minimal, nicht blockierend) [R: M-2, m-5]
 
-- Datengetriebene Siegbedingung, zwei Typen:
+- Datengetriebene Siegbedingung, drei Typen:
   - `revealAllAreas`: alle Bereiche entdeckt.
-  - `visitAllAreas` (v0.1-Karte): alle Bereiche entdeckt **und** von mindestens einem
+  - `visitAllAreas` (Karte bis v0.2): alle Bereiche entdeckt **und** von mindestens einem
     Helden betreten. Als betreten zählen die Startbereiche sowie jedes Feld eines
     Bewegungspfads, auch beim Durchqueren. Der Zustand führt dazu `visitedAreas`; die
     Ansicht zeigt den Zähler `objective.visitedAreas`.
-- Beim ersten Erreichen sendet der Server einmalig `GAME_WON` (nach `AREA_REVEALED` bzw.
-  `CHARACTER_MOVED`); die Clients zeigen „Gewölbe erkundet“ nach der Inszenierung.
+  - `clearDungeon` (Karte ab v0.3): alle Bereiche entdeckt **und** alle Monster besiegt
+    (M10). Betreten ist nicht nötig.
+- Beim ersten Erreichen sendet der Server einmalig `GAME_WON` (nach `AREA_REVEALED`,
+  `CHARACTER_MOVED` bzw. `MONSTER_DEFEATED`); die Clients zeigen „Gewölbe erkundet“ bzw.
+  „Gewölbe befreit“ nach der Inszenierung.
   **Das Spiel läuft weiter**: Bewegen und Zug beenden bleiben möglich.
 - **Neues Spiel** (`RESTART_GAME`): jeder der beiden Spieler jederzeit, solange die Partie
   läuft (UI mit Bestätigung). In der Wartephase (`waiting`) wird es mit `GAME_NOT_RUNNING`
@@ -322,3 +329,31 @@ Feld der v0.1-Karte vom Start erreichbar (keine eingeschlossenen Taschen).
   - **Bekannte v0.1-Grenzen vor einem öffentlichen Deployment (Konzept §22):** kein Limit
     für Spielerstellung pro IP, 5-stellige Spielcodes, keine TLS-Terminierung im Container
     (gehört in den Reverse Proxy).
+
+## M10 Gegner und Kampf (ab v0.3)
+
+- **Wach** ist ein Monster, sobald sein Bereich entdeckt ist. Monster in verborgenen
+  Bereichen schlafen und ziehen nicht.
+- **Gegnerphase:** Nach dem Zug von Slot 1 ziehen alle wachen Monster nacheinander in
+  Kartenreihenfolge, jedes bis zu `rules.monsterMovementPerTurn` Schritte (Karte v0.3: 3).
+  Jedes Monster plant mit den bereits gezogenen Positionen der anderen. Server-seitig
+  atomar: `END_TURN` liefert `MONSTER_PHASE`, je ein `CHARACTER_MOVED` pro ziehendem
+  Monster und danach `TURN_STARTED` der neuen Runde in **einem** Update. Zieht kein Monster,
+  entfällt `MONSTER_PHASE`.
+- **Wegwahl („annähern“):** Bewegt wird wie bei Helden (nur entdeckte Felder, offene Türen,
+  erkundete Treppen, keine blockierenden Props), Monster können aber weder Helden noch andere
+  Monster durchqueren. Gewählt wird das erreichbare Feld (inkl. Stehenbleiben) mit der
+  kürzesten Wegdistanz zum nächsten Helden; bei Gleichstand das mit weniger Schritten,
+  dann das zuerst gefundene (N, O, S, W, Treppe). Ein Monster zieht nur, wenn es dadurch
+  näher kommt; steht es schon neben einem Helden oder führt kein Weg zu einem, bleibt es.
+- **Angriff** (`ATTACK` mit `characterId` und `targetId`): Voraussetzungen wie bei Türen –
+  Spieler am Zug, eigene Figur, Aktion verfügbar. Das Monster muss **einen Schritt** entfernt
+  stehen: orthogonal benachbart ohne Wand oder geschlossene Tür dazwischen, oder am anderen
+  Ende einer erkundeten Treppe (so kann ein Monster eine Treppe nicht dauerhaft blockieren).
+  Ein Schlag besiegt das Monster; die Figur blickt zu ihm, Aktion verbraucht, Ereignis
+  `MONSTER_DEFEATED` (ggf. `GAME_WON`). Ablehnungen: `UNKNOWN_CHARACTER` (auch für Monster
+  in verborgenen Bereichen, M6), `TARGET_NOT_ADJACENT`, `NO_ACTION_LEFT`.
+- Monster greifen nicht an; ihre Nähe hat keine Regelwirkung, außer dass sie Felder und
+  Türdurchgänge blockieren.
+- **Kartenvalidierung** (`clearDungeon`): Jedes Monster muss an seinem Startfeld von einem
+  erreichbaren Feld aus angreifbar sein.

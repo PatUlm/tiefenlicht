@@ -16,16 +16,18 @@ export interface ReachableTile {
  *    straight to their landing on the next level, also 1 point
  *  - tile must exist (be revealed), not hold a blocking prop or a monster
  *  - edge must not be a wall, a closed door or unexplored stairs
- *  - allied heroes may be passed through, but not ended on
+ *  - allied heroes may be passed through, but not ended on; a moving monster
+ *    (`heroesBlock`) can pass neither heroes nor other monsters (M10)
  * Neighbour order N, E, S, W makes the chosen path deterministic.
  *
- * Returns every tile the moving hero may end its move on (start excluded).
+ * Returns every tile the moving figure may end its move on (start excluded).
  */
 export function computeReachable(
   board: Board,
   moverId: CharacterId,
   from: Position,
   maxSteps: number,
+  heroesBlock = false,
 ): Map<string, ReachableTile> {
   const result = new Map<string, ReachableTile>();
   if (maxSteps <= 0) return result;
@@ -41,10 +43,11 @@ export function computeReachable(
         if (visited.has(key)) continue;
         if (!board.isEdgePassable(node.pos, pos)) continue;
         if (board.isBlockedByProp(pos) || board.monsterAt(pos) !== undefined) continue;
+        const occupant = board.heroAt(pos);
+        if (heroesBlock && occupant !== undefined) continue;
         visited.add(key);
         const path = [...node.path, pos];
         next.push({ pos, path });
-        const occupant = board.heroAt(pos);
         if (occupant === undefined || occupant === moverId) {
           result.set(key, { position: pos, cost, path });
         }

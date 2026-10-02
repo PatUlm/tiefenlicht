@@ -7,6 +7,7 @@ import {
   TransformNode,
   Vector3,
   type AnimationGroup,
+  type Material,
   type Mesh,
   type Scene,
 } from '@babylonjs/core';
@@ -28,6 +29,10 @@ interface CharacterStyle {
   readonly idle: string;
   readonly walk?: string;
   readonly awaken?: string;
+  /** Heroes: their strike (M10). */
+  readonly attack?: string;
+  /** Monsters: how they fall. */
+  readonly death?: string;
   readonly labelHeight: number;
 }
 
@@ -42,6 +47,7 @@ const STYLES: Record<HeroKind | MonsterKind, CharacterStyle> = {
     baseColor: Color3.FromHexString(HERO_COLORS.dwarf),
     idle: 'Idle',
     walk: 'Walking_A',
+    attack: '1H_Melee_Attack_Chop',
     labelHeight: 4.3,
   },
   darkelf: {
@@ -53,6 +59,7 @@ const STYLES: Record<HeroKind | MonsterKind, CharacterStyle> = {
     baseColor: Color3.FromHexString(HERO_COLORS.darkelf),
     idle: 'Idle',
     walk: 'Walking_A',
+    attack: 'Dualwield_Melee_Attack_Stab',
     labelHeight: 4.7,
   },
   skeletonWarrior: {
@@ -65,7 +72,9 @@ const STYLES: Record<HeroKind | MonsterKind, CharacterStyle> = {
     ],
     baseColor: new Color3(0.32, 0.36, 0.3),
     idle: 'Idle_Combat',
+    walk: 'Walking_D_Skeletons',
     awaken: 'Skeletons_Awaken_Floor_Long',
+    death: 'Death_C_Skeletons',
     labelHeight: 4.3,
   },
   skeletonMinion: {
@@ -75,7 +84,9 @@ const STYLES: Record<HeroKind | MonsterKind, CharacterStyle> = {
     weapons: [['Skeleton_Axe', 'handslot.r']],
     baseColor: new Color3(0.32, 0.36, 0.3),
     idle: 'Idle_Combat',
+    walk: 'Walking_D_Skeletons',
     awaken: 'Skeletons_Awaken_Floor',
+    death: 'Death_C_Skeletons',
     labelHeight: 4,
   },
   skeletonMage: {
@@ -85,11 +96,14 @@ const STYLES: Record<HeroKind | MonsterKind, CharacterStyle> = {
     weapons: [['Skeleton_Staff', 'handslot.r']],
     baseColor: new Color3(0.3, 0.28, 0.42),
     idle: 'Idle_B',
+    walk: 'Walking_D_Skeletons',
     awaken: 'Spawn_Air',
+    death: 'Death_C_Skeletons',
     labelHeight: 4.6,
   },
 };
 
+const TARGET_COLOR = new Color3(1, 0.25, 0.3);
 const STEP_MS = 330;
 const CLIMB_MS = 1100;
 /** Pose while on a ladder (all KayKit figures have it): knees bent, arms up. */
@@ -115,6 +129,11 @@ export class CharacterView {
   private readonly model: CharacterInstance;
   private readonly style: CharacterStyle;
   private readonly ring: Mesh;
+  /**
+   * Materials only this figure uses: base, ring and – for a variant – the cloned model
+   * material. Plain model materials and their textures are shared by every copy of the model.
+   */
+  private readonly ownMaterials = new Set<Material>();
   /** Base and active ring; hidden while the figure is on a ladder. */
   private readonly plinth: TransformNode;
   private current: AnimationGroup | undefined;
@@ -143,6 +162,7 @@ export class CharacterView {
     this.plinth.parent = this.root;
     const base = MeshBuilder.CreateCylinder(`base:${spec.id}`, { diameter: 2.9, height: BASE_HEIGHT, tessellation: 40 }, scene);
     const baseMat = new StandardMaterial(`base:${spec.id}`, scene);
+    this.ownMaterials.add(baseMat);
     baseMat.diffuseColor = this.style.baseColor;
     baseMat.emissiveColor = this.style.baseColor.scale(spec.monster ? 0.1 : 0.35);
     baseMat.specularColor = new Color3(0.3, 0.3, 0.3);
@@ -154,7 +174,9 @@ export class CharacterView {
 
     this.ring = MeshBuilder.CreateTorus(`ring:${spec.id}`, { diameter: 3.4, thickness: 0.16, tessellation: 48 }, scene);
     const ringMat = new StandardMaterial(`ring:${spec.id}`, scene);
-    ringMat.emissiveColor = this.style.baseColor;
+    this.ownMaterials.add(ringMat);
+    // Heroes: whose turn it is. Monsters: within the own hero's strike.
+    ringMat.emissiveColor = spec.monster ? TARGET_COLOR : this.style.baseColor;
     ringMat.diffuseColor = Color3.Black();
     ringMat.disableLighting = true;
     this.ring.material = ringMat;
@@ -172,7 +194,10 @@ export class CharacterView {
       mesh.isPickable = false;
       if (this.style.hide.some((h) => mesh.name.endsWith(`:${h}`))) mesh.setEnabled(false);
       // No emissive: through the glow layer it would veil the whole figure (and the grey skin) in its colour.
-      if (variant && mesh.material instanceof StandardMaterial) mesh.material.diffuseTexture = assets.figureTexture(variant);
+      if (variant && mesh.material instanceof StandardMaterial) {
+        mesh.material.diffuseTexture = assets.figureTexture(variant);
+        this.ownMaterials.add(mesh.material);
+      }
       world.addShadowCaster(mesh);
     }
     for (const [weapon, slot] of this.style.weapons) {
@@ -214,6 +239,11 @@ export class CharacterView {
 
   setActive(active: boolean): void {
     this.ring.setEnabled(active);
+  }
+
+  /** Monsters: a red ring marks one the own hero can strike right now (M10). */
+  setTargetable(targetable: boolean): void {
+    this.ring.setEnabled(targetable);
   }
 
   /** Snap to a tile (snapshot sync). */
@@ -345,6 +375,22 @@ export class CharacterView {
     void this.playOnce('Cheer');
   }
 
+  /** A hero's blow (M10); resolves when the swing is over. */
+  async strike(): Promise<void> {
+    await this.playOnce(this.style.attack ?? 'Interact', 1.2);
+  }
+
+  /** A monster falls apart into bones and sinks away; the caller disposes it afterwards. */
+  async die(): Promise<void> {
+    this.ring.setEnabled(false);
+    this.label.classList.add('hidden');
+    this.effects.burst(this.root.position.add(new Vector3(0, 1.2, 0)), new Color4(0.9, 0.87, 0.75, 1), new Color4(0.45, 0.42, 0.35, 1), 80, 4, 0.6);
+    const group = this.play(this.style.death ?? this.style.idle, false);
+    if (group && !document.hidden) await new Promise<void>((resolve) => group.onAnimationGroupEndObservable.addOnce(() => resolve()));
+    const y = this.root.position.y;
+    await tween(this.world.scene, 900, (t) => (this.root.position.y = y - t * 1.4), ease.inQuad, 300);
+  }
+
   /** Monster lies dormant until its room is discovered. */
   sleep(): void {
     this.play('Skeletons_Inactive_Floor_Pose', true);
@@ -361,12 +407,10 @@ export class CharacterView {
   dispose(): void {
     this.world.scene.onBeforeRenderObservable.removeCallback(this.onFrame);
     for (const group of this.model.animations.values()) group.dispose();
-    // The variant texture is shared by all copies of the figure: dispose only the cloned materials.
-    if (this.style.variant) {
-      for (const mesh of this.model.meshes) if (mesh.material instanceof StandardMaterial) mesh.material.diffuseTexture = null;
-    }
     this.label.remove();
-    this.root.dispose(false, true);
+    // Meshes only: shared model materials and textures (also the variant texture) must survive.
+    this.root.dispose(false, false);
+    for (const material of this.ownMaterials) material.dispose();
   }
 
   private readonly onFrame = () => {
