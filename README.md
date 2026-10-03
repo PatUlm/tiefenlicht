@@ -1,4 +1,4 @@
-# Tiefenlicht – Tech-Prototyp v0.4
+# Tiefenlicht – Tech-Prototyp v0.5
 
 Rundenbasiertes 3D-Dungeon-Brettspiel im Browser (Arbeitstitel „Tiefenlicht“), umgesetzt
 nach `dungeon-game-concept.md`. Zwei Spieler (Zwerg und Dunkelelf) erkunden gemeinsam
@@ -129,7 +129,7 @@ einheitlichen Stil, die Figuren sind animiert (Laufen, Interagieren, Erwachen, J
 und die Pakete sind direkt per Git beziehbar. Sarkophag, Bücherregale, Kessel, Kristall
 und Statue-Sockel sind prozedural erzeugt. Font: Fredoka (SIL OFL).
 
-## Bekannte Grenzen v0.4
+## Bekannte Grenzen v0.5
 
 - Kampf nur als Ein-Schlag-Angriff der Helden; keine Würfel, kein Inventar, keine
   Lebenspunkte. Gegner nähern sich nur an und greifen nicht an.

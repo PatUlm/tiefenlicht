@@ -14,7 +14,7 @@ export interface HudHandlers {
   onToggleGrid(): void;
 }
 
-/** Touch screens get tap wording and the touch layout parts (styles.css uses the same query). */
+/** Touch screens skip the control explanation in the turn bar (styles.css uses the same query for the touch layout). */
 const coarsePointer = window.matchMedia('(pointer: coarse)');
 
 export interface HudState {
@@ -267,7 +267,7 @@ export class Hud {
         ? 'Verbindung wird wiederhergestellt …'
         : state.canStillAct
           ? coarsePointer.matches
-            ? 'Tippe ein leuchtendes Feld zum Laufen. Steht dein Held an einer Tür, einer Treppe oder neben einem Gegner, tippe darauf.'
+            ? ''
             : 'Klicke ein leuchtendes Feld zum Laufen. Steht dein Held an einer Tür, einer Treppe oder neben einem Gegner, klicke darauf.'
           : 'Nichts mehr zu tun – beende deinen Zug.';
     } else {

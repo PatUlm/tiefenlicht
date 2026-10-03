@@ -48,7 +48,7 @@ export class LobbyUI {
     this.busy = false;
     this.root.classList.remove('fade');
     this.card.replaceChildren();
-    this.card.append(el('h1', 'logo', 'Tiefenlicht'), el('p', 'subtitle', 'Ein Dungeon-Brettspiel · Tech-Prototyp v0.4'));
+    this.card.append(el('h1', 'logo', 'Tiefenlicht'), el('p', 'subtitle', 'Ein Dungeon-Brettspiel · Tech-Prototyp v0.5'));
 
     const nameField = el('div', 'field');
     const nameInput = el('input');

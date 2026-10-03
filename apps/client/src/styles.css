@@ -1006,6 +1006,18 @@ input {
   }
 }
 
+/* Tablets in landscape: camera buttons bottom left, turn bar bottom right, the centre stays free. */
+@media (pointer: coarse) and (min-width: 901px) {
+  .hud-bottom {
+    left: var(--inset-left);
+    right: var(--inset-right);
+    bottom: var(--inset-bottom);
+    width: auto;
+    transform: none;
+    justify-content: space-between;
+  }
+}
+
 /* Phones, portrait and landscape: compact top bar, menu, foldable minimap. */
 @media (max-width: 640px), (max-height: 500px) {
   .hud-top {
