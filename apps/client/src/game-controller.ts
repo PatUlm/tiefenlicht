@@ -26,6 +26,7 @@ import {
 } from '@dungeon/shared';
 import type { Music } from './audio/music.ts';
 import { Connection, sessionStore, type ConnectionStatus, type StoredSession } from './net/connection.ts';
+import { reloadIfPending } from './pwa/update.ts';
 import type { AssetLibrary } from './scene/assets.ts';
 import type { BoardOverlay } from './scene/board-overlay.ts';
 import { CharacterView, HERO_COLORS, type CharacterSpec } from './scene/characters.ts';
@@ -171,6 +172,11 @@ export class GameController {
     this.request({ type: 'RESTART_GAME' }, true);
   }
 
+  /** No game joined or being resumed: an app update may reload the page now. */
+  isIdle(): boolean {
+    return this.session === null && !this.resuming;
+  }
+
   // ------------------------------------------------------------ networking
 
   private send(message: ClientMessage): void {
@@ -277,6 +283,7 @@ export class GameController {
       this.d.hud.closeOverlay();
       this.d.hud.hide();
       this.d.lobby.showStart('', reason);
+      reloadIfPending();
     });
   }
 

@@ -340,6 +340,16 @@ input {
   color: rgba(195, 181, 217, 0.7);
 }
 
+.lobby-card .install {
+  margin-top: 6px;
+}
+
+.lobby-version {
+  margin-top: 4px;
+  font-size: 11px;
+  color: rgba(195, 181, 217, 0.45);
+}
+
 .waiting-code {
   font-size: 44px;
   font-weight: 700;

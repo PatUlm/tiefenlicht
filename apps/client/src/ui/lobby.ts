@@ -1,5 +1,7 @@
 import { MAX_PLAYER_NAME_LENGTH } from '@dungeon/shared';
 import type { Music } from '../audio/music.ts';
+import { canInstall, onInstallChange, promptInstall } from '../pwa/install.ts';
+import { APP_VERSION } from '../pwa/update.ts';
 import { button, el } from './dom.ts';
 import { musicButton } from './music-button.ts';
 
@@ -31,6 +33,8 @@ export class LobbyUI {
   private readonly root: HTMLDivElement;
   private readonly card: HTMLDivElement;
   private errorBox: HTMLDivElement | null = null;
+  /** Shown on the start screen while the browser offers installing (Android Chrome). */
+  private readonly installButton: HTMLButtonElement;
   private busy = false;
 
   constructor(
@@ -42,6 +46,10 @@ export class LobbyUI {
     this.card = el('div', 'panel lobby-card');
     this.root.append(this.card, musicButton(music));
     parent.appendChild(this.root);
+    this.installButton = button('Als App installieren', 'secondary small install', () => void promptInstall());
+    const renderInstall = () => (this.installButton.hidden = !canInstall());
+    renderInstall();
+    onInstallChange(renderInstall);
   }
 
   showStart(prefillCode = '', error = ''): void {
@@ -112,7 +120,9 @@ export class LobbyUI {
       nameField,
       actions,
       this.errorBox,
+      this.installButton,
       el('div', 'lobby-foot', 'Zwei Spieler · Zwerg & Dunkelelf · Assets: KayKit (CC0)'),
+      el('div', 'lobby-version', `Version ${APP_VERSION}`),
     );
     (prefillCode || !nameInput.value ? nameInput : create).focus();
   }

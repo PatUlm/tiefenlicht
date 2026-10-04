@@ -9,6 +9,8 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/game-core/package.json packages/game-core/
 RUN pnpm install --frozen-lockfile
 COPY . .
+# Release tag for the client build (version shown in the app); ARGs are env vars for RUN.
+ARG APP_VERSION=dev
 RUN pnpm test && pnpm build
 
 # Runtime stage: a single self-contained server bundle that also serves the client.

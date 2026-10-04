@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- App icon: candle in a stone archway. Everything sits inside the maskable safe zone (r = 205). -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="45%" r="70%">
+      <stop offset="0" stop-color="#2a1d4d" />
+      <stop offset="1" stop-color="#120c22" />
+    </radialGradient>
+    <linearGradient id="stone" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6b5d8c" />
+      <stop offset="1" stop-color="#3b3156" />
+    </linearGradient>
+    <radialGradient id="glow" cx="256" cy="282" r="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffcf6b" stop-opacity="0.75" />
+      <stop offset="0.45" stop-color="#e89b2e" stop-opacity="0.3" />
+      <stop offset="1" stop-color="#e89b2e" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff3c4" />
+      <stop offset="0.55" stop-color="#ffcf6b" />
+      <stop offset="1" stop-color="#ff8a3d" />
+    </linearGradient>
+    <linearGradient id="wax" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff1d6" />
+      <stop offset="1" stop-color="#d9bf94" />
+    </linearGradient>
+    <clipPath id="opening">
+      <path d="M190 400V238a66 66 0 0 1 132 0V400Z" />
+    </clipPath>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bg)" />
+
+  <!-- archway -->
+  <path d="M150 400V232a106 106 0 0 1 212 0V400Z" fill="url(#stone)" />
+  <g stroke="#2a2140" stroke-width="5" stroke-linecap="round">
+    <path d="M190 238H150M322 238H362M207 192 177 167M305 192 335 167M256 172V126" />
+    <path d="M150 300H190M322 300H362M150 356H190M322 356H362" />
+  </g>
+  <path d="M190 400V238a66 66 0 0 1 132 0V400Z" fill="#0a0614" />
+  <g clip-path="url(#opening)">
+    <rect x="150" y="160" width="212" height="240" fill="url(#glow)" />
+  </g>
+
+  <!-- floor -->
+  <rect x="136" y="398" width="240" height="18" rx="4" fill="#4a3f66" />
+
+  <!-- candle -->
+  <path d="M236 304h40v94h-40z" fill="url(#wax)" />
+  <path d="M236 304h40v10c-6 0-6 14-12 14s-4-10-9-10-4 18-10 18-5-22-9-22z" fill="#fff8e8" />
+  <path d="M256 304v-10" stroke="#3b2a1a" stroke-width="4" stroke-linecap="round" />
+  <path d="M256 222c16 24 22 44 22 54a22 22 0 0 1-44 0c0-10 6-30 22-54Z" fill="url(#flame)" />
+  <path d="M256 258c6 10 8 17 8 22a8 8 0 0 1-16 0c0-5 2-12 8-22Z" fill="#fffbe8" />
+</svg>

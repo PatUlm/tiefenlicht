@@ -5,3 +5,4 @@ allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
   - '@types/ws@8.18.2'
+  - vite-plugin-pwa@2.0.0

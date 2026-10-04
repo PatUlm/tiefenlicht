@@ -3,6 +3,8 @@ import { Matrix, Vector3 } from '@babylonjs/core';
 import './styles.css';
 import { Music } from './audio/music.ts';
 import { GameController } from './game-controller.ts';
+import { listenForInstallPrompt } from './pwa/install.ts';
+import { setupUpdates } from './pwa/update.ts';
 import { AssetLibrary } from './scene/assets.ts';
 import { BoardOverlay } from './scene/board-overlay.ts';
 import { DungeonView } from './scene/dungeon-view.ts';
@@ -13,6 +15,8 @@ import { Hud } from './ui/hud.ts';
 import { LobbyUI } from './ui/lobby.ts';
 
 async function main(): Promise<void> {
+  // Before loading the models: Chrome may offer installing while they load.
+  listenForInstallPrompt();
   const canvas = document.getElementById('scene') as HTMLCanvasElement;
   const ui = document.getElementById('ui')!;
   const labels = document.getElementById('labels')!;
@@ -56,6 +60,7 @@ async function main(): Promise<void> {
   );
   controller = new GameController({ world, assets, effects, dungeon, overlay, hud, lobby, labels, music });
   controller.start();
+  setupUpdates(() => controller.isIdle());
   window.setInterval(() => hud.setFps(world.engine.getFps()), 500);
 
   if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) exposeDebugHandle(world, controller);
