@@ -3,4 +3,8 @@ backend.hcl
 *.tfstate
 *.tfstate.*
 crash.log
-image.auto.tfvars
+# Variablenwerte (Image-Tag, Basic-Auth-Hash) und gespeicherte Pläne: nie ins öffentliche Repo
+*.tfvars
+*.tfplan
+# Klartext des Basic-Auth-Zugangs
+basic-auth.txt

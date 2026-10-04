@@ -8,7 +8,7 @@ produktive Deployment. Das Muster entspricht `gehrung-schifterschnitt`.
 
 | Was | Wert |
 |-----|------|
-| Domain | `tiefenlicht.nieda.de` (öffentlich, keine Basic-Auth) |
+| Domain | `tiefenlicht.nieda.de` (nur für die Familie: Basic-Auth vor der ganzen Seite inkl. `/ws` und `/healthz`) |
 | Server | `netcup1` (SSH-Host aus `~/.ssh/config`) |
 | Laufzeit | Docker-Container `tiefenlicht_web` (node:24-slim, Port 8080: Client + WebSocket `/ws`) |
 | Reverse-Proxy | Traefik im Docker-Netz `proxy-manager`, TLS via Certresolver `production` |
@@ -58,6 +58,15 @@ DOCKER_HOST=ssh://netcup1 docker version   # muss Client UND Server zeigen
 task init          # = terraform -chdir=terraform init -backend-config=backend.hcl
 ```
 
+- `terraform/auth.auto.tfvars` (gitignoriert) mit dem Basic-Auth-Zugang für die
+  Traefik-Middleware, als htpasswd-Zeile mit bcrypt:
+
+```bash
+htpasswd -nB familie   # fragt das Passwort ab, gibt familie:$2y$... aus
+# terraform/auth.auto.tfvars:
+# basic_auth_users = "familie:$2y$..."
+```
+
 ## Standard-Ablauf
 
 ```bash
@@ -86,7 +95,7 @@ task deploy-full
 ## Nach dem Deploy verifizieren
 
 ```bash
-curl -s https://tiefenlicht.nieda.de/healthz    # {"ok":true,"games":0,"version":"<Tag>"}
+curl -s -u familie https://tiefenlicht.nieda.de/healthz    # fragt das Passwort ab; {"ok":true,"games":0,"version":"<Tag>"}
 ```
 
 Der Tag muss dem eben gebauten entsprechen. Beim allerersten Deploy eines Hostnamens
