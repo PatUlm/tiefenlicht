@@ -17,6 +17,9 @@ import { LobbyUI } from './ui/lobby.ts';
 async function main(): Promise<void> {
   // Before loading the models: Chrome may offer installing while they load.
   listenForInstallPrompt();
+  let controller: GameController;
+  // Until the controller exists nothing is joined, so a reload into a new version is harmless.
+  const serviceWorkerReady = setupUpdates(() => (controller as GameController | undefined)?.isIdle() ?? true);
   const canvas = document.getElementById('scene') as HTMLCanvasElement;
   const ui = document.getElementById('ui')!;
   const labels = document.getElementById('labels')!;
@@ -26,6 +29,8 @@ async function main(): Promise<void> {
 
   const world = new World(canvas);
   world.start();
+  // First visit: models then load through the service worker and land in its cache.
+  await serviceWorkerReady;
   const assets = new AssetLibrary(world.scene);
   await assets.load((done, total) => {
     loading.textContent = `Lade das Gewölbe … ${Math.round((done / total) * 100)} %`;
@@ -37,7 +42,6 @@ async function main(): Promise<void> {
   const overlay = new BoardOverlay(world.scene, world.glow);
 
   const music = new Music();
-  let controller: GameController;
   const hud = new Hud(
     ui,
     {
@@ -60,7 +64,6 @@ async function main(): Promise<void> {
   );
   controller = new GameController({ world, assets, effects, dungeon, overlay, hud, lobby, labels, music });
   controller.start();
-  setupUpdates(() => controller.isIdle());
   window.setInterval(() => hud.setFps(world.engine.getFps()), 500);
 
   if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) exposeDebugHandle(world, controller);

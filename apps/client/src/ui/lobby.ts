@@ -165,6 +165,11 @@ export class LobbyUI {
     if (this.errorBox) this.errorBox.textContent = message;
   }
 
+  /** A create or join request is on its way to the server. */
+  isBusy(): boolean {
+    return this.busy;
+  }
+
   hide(): void {
     this.root.classList.add('fade');
   }

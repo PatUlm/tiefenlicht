@@ -9,9 +9,18 @@ import { registerSW } from 'virtual:pwa-register';
 let reloadPending = false;
 let isSafe: () => boolean = () => true;
 
-export function setupUpdates(safeToReload: () => boolean): void {
+/** How long the very first visit waits for the service worker before loading the models. */
+const FIRST_INSTALL_WAIT_MS = 10_000;
+
+/**
+ * Registers the service worker. The returned promise resolves once it controls
+ * the page (at most after a few seconds), so the models load through its cache
+ * already on the first visit.
+ */
+export function setupUpdates(safeToReload: () => boolean): Promise<void> {
   isSafe = safeToReload;
-  if (!('serviceWorker' in navigator)) return;
+  if (!import.meta.env.PROD || !('serviceWorker' in navigator)) return Promise.resolve();
+  void dropStaleModelCaches();
   registerSW({
     immediate: true,
     // Without this hook autoUpdate reloads every open page at once, games included.
@@ -28,11 +37,27 @@ export function setupUpdates(safeToReload: () => boolean): void {
       });
     },
   });
+  if (navigator.serviceWorker.controller) return Promise.resolve();
+  return new Promise((resolve) => {
+    navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true });
+    setTimeout(resolve, FIRST_INSTALL_WAIT_MS);
+  });
 }
 
 /** Call when the app reaches a calm moment (back in the lobby). */
 export function reloadIfPending(): void {
   if (reloadPending && isSafe()) location.reload();
+}
+
+/** Models of earlier releases live in caches named after their content hash. */
+async function dropStaleModelCaches(): Promise<void> {
+  try {
+    for (const name of await caches.keys()) {
+      if (name.startsWith('tiefenlicht-models') && name !== __MODELS_CACHE__) await caches.delete(name);
+    }
+  } catch {
+    /* CacheStorage unavailable (e.g. private mode): nothing to clean up */
+  }
 }
 
 export const APP_VERSION = __APP_VERSION__;

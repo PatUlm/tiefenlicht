@@ -172,9 +172,13 @@ export class GameController {
     this.request({ type: 'RESTART_GAME' }, true);
   }
 
-  /** No game joined or being resumed: an app update may reload the page now. */
+  /**
+   * Start screen without a game: none joined, resumed, requested or still being
+   * torn down (leaveGame clears the view only in its queued job). An app update
+   * may reload the page now.
+   */
   isIdle(): boolean {
-    return this.session === null && !this.resuming;
+    return this.session === null && !this.resuming && this.view === null && !this.d.lobby.isBusy();
   }
 
   // ------------------------------------------------------------ networking

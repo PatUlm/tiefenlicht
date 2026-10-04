@@ -1,7 +1,26 @@
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 const serverPort = Number(process.env.SERVER_PORT ?? 8080);
+
+/** Content hash of the given folders: a replaced model gets a new runtime cache. */
+function contentHash(dirs: string[]): string {
+  const hash = createHash('sha256');
+  for (const dir of dirs) {
+    for (const file of (readdirSync(dir, { recursive: true }) as string[]).sort()) {
+      const path = join(dir, file);
+      if (statSync(path).isFile()) hash.update(file).update(readFileSync(path));
+    }
+  }
+  return hash.digest('hex').slice(0, 12);
+}
+
+const assetsDir = fileURLToPath(new URL('../../assets', import.meta.url));
+const modelsCache = `tiefenlicht-models-${contentHash([join(assetsDir, 'models'), join(assetsDir, 'textures')])}`;
 
 export default defineConfig({
   // Models and licenses live in the repository-level assets/ folder (concept §8).
@@ -16,6 +35,8 @@ export default defineConfig({
   define: {
     // Release tag from bin/release.sh (Docker build arg), shown in the lobby and menu.
     __APP_VERSION__: JSON.stringify(process.env.APP_VERSION ?? 'dev'),
+    // Runtime cache of this build's models; older ones are deleted by src/pwa/update.ts.
+    __MODELS_CACHE__: JSON.stringify(modelsCache),
   },
   build: {
     target: 'es2022',
@@ -60,10 +81,10 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/ws/, /^\/healthz/],
         runtimeCaching: [
           {
-            // File names are stable (no hash): a replaced model needs a new name or a new cache name.
+            // File names are stable (no hash), so the cache name carries the content hash.
             urlPattern: ({ url }) => /^\/(models|textures)\//.test(url.pathname),
             handler: 'CacheFirst',
-            options: { cacheName: 'tiefenlicht-models', cacheableResponse: { statuses: [200] } },
+            options: { cacheName: modelsCache, cacheableResponse: { statuses: [200] } },
           },
         ],
       },
