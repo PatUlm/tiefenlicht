@@ -28,6 +28,25 @@ function saveName(name: string): void {
   }
 }
 
+/** Imprint and privacy notice live centrally on www.nieda.de. */
+const LEGAL_LINKS = [
+  ['Impressum', 'https://www.nieda.de/impressum.html'],
+  ['Datenschutz', 'https://www.nieda.de/datenschutz.html'],
+] as const;
+
+/** Version line with the legal links; they open in a new tab so the lobby stays put. */
+function lobbyMeta(): HTMLDivElement {
+  const meta = el('div', 'lobby-version', `Version ${APP_VERSION}`);
+  for (const [label, href] of LEGAL_LINKS) {
+    const link = el('a', undefined, label);
+    link.href = href;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    meta.append(' · ', link);
+  }
+  return meta;
+}
+
 /** Start screen: create a game or join one by code; afterwards the waiting card. */
 export class LobbyUI {
   private readonly root: HTMLDivElement;
@@ -122,7 +141,7 @@ export class LobbyUI {
       this.errorBox,
       this.installButton,
       el('div', 'lobby-foot', 'Zwei Spieler · Zwerg & Dunkelelf · Assets: KayKit (CC0)'),
-      el('div', 'lobby-version', `Version ${APP_VERSION}`),
+      lobbyMeta(),
     );
     (prefillCode || !nameInput.value ? nameInput : create).focus();
   }

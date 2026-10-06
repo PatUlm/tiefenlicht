@@ -350,6 +350,15 @@ input {
   color: rgba(195, 181, 217, 0.45);
 }
 
+.lobby-version a {
+  color: inherit;
+}
+
+.lobby-version a:hover,
+.lobby-version a:focus-visible {
+  color: rgba(195, 181, 217, 0.8);
+}
+
 .waiting-code {
   font-size: 44px;
   font-weight: 700;
