@@ -49,8 +49,6 @@ export default defineConfig({
       registerType: 'autoUpdate',
       // Registered from src/pwa/update.ts, which reloads into new versions only outside a game.
       injectRegister: false,
-      // The manifest is fetched without credentials by default, which Basic Auth rejects.
-      useCredentials: true,
       includeAssets: ['icons/icon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
         name: 'Tiefenlicht',

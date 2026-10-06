@@ -13,21 +13,6 @@ variable "image" {
   description = "Lokaler Image-Tag, z. B. tiefenlicht:20260930-0900"
 }
 
-# Basic-Auth: die ganze Seite (Client, /ws, /healthz) nur fuer die Familie.
-# htpasswd-Zeile(n) mit bcrypt (htpasswd -nB <user>), mehrere durch Komma getrennt.
-# Steht in der gitignoreten auth.auto.tfvars; der Hash landet trotzdem im State
-# und in den Container-Labels.
-variable "basic_auth_users" {
-  type        = string
-  sensitive   = true
-  description = "htpasswd-Eintraege (bcrypt) fuer die Traefik-basicauth-Middleware"
-
-  validation {
-    condition     = alltrue([for entry in split(",", var.basic_auth_users) : can(regex("^[^:,]+:\\$2[aby]\\$[0-9]{2}\\$[./A-Za-z0-9]{53}$", entry))])
-    error_message = "Erwartet htpasswd-Zeilen mit bcrypt-Hash (user:$2y$...)."
-  }
-}
-
 terraform {
   required_version = ">= 1.6.0"
 
@@ -81,25 +66,6 @@ resource "docker_container" "web" {
   labels {
     label = "traefik.http.routers.tiefenlicht.rule"
     value = "Host(`${local.hostname}`)"
-  }
-  # Ein Router fuer alles: die Middleware schuetzt Client, WebSocket und /healthz.
-  # Der Docker-Healthcheck laeuft containerintern und ist nicht betroffen.
-  labels {
-    label = "traefik.http.routers.tiefenlicht.middlewares"
-    value = "tiefenlicht-auth"
-  }
-  labels {
-    label = "traefik.http.middlewares.tiefenlicht-auth.basicauth.users"
-    value = var.basic_auth_users
-  }
-  labels {
-    label = "traefik.http.middlewares.tiefenlicht-auth.basicauth.realm"
-    value = "Tiefenlicht"
-  }
-  # Authorization-Header nicht an den Spiel-Server weiterreichen.
-  labels {
-    label = "traefik.http.middlewares.tiefenlicht-auth.basicauth.removeheader"
-    value = "true"
   }
   # Ein Port fuer Client (HTTP) und Spiel-Server (WebSocket unter /ws).
   labels {

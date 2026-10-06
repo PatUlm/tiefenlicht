@@ -5,9 +5,7 @@ ein Dunkelelf erkunden gemeinsam „Das Gewölbe der Laternen“: drei Ebenen mi
 Eingangshalle, Gang, Krypta und Magierstube, darunter die Gebeinkammer und darüber die
 Sternwarte. Türen und Treppen führen in verborgene Räume, und dort erwachen Gegner.
 
-**Online spielen:** <https://tiefenlicht.nieda.de> ist ein privates Angebot nur für die
-Familie und per Login geschützt; wer mitspielen will, startet eine eigene Instanz (siehe
-„Selbst betreiben und entwickeln“). Ein Spieler erstellt eine Partie, der
+**Online spielen:** <https://tiefenlicht.nieda.de>. Ein Spieler erstellt eine Partie, der
 andere tritt per Code oder Link bei. Auf einem Android-Tablet lässt sich Tiefenlicht als App
 installieren und läuft dann im Vollbild.
 
