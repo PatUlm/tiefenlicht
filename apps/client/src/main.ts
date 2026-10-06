@@ -12,9 +12,11 @@ import { Effects } from './scene/effects.ts';
 import { World } from './scene/world.ts';
 import { el } from './ui/dom.ts';
 import { Hud } from './ui/hud.ts';
-import { LobbyUI } from './ui/lobby.ts';
+import { clearStoredName, LobbyUI } from './ui/lobby.ts';
 
 async function main(): Promise<void> {
+  // First, so a failed model load cannot leave the old stored name behind.
+  clearStoredName();
   // Before loading the models: Chrome may offer installing while they load.
   listenForInstallPrompt();
   let controller: GameController;

@@ -350,13 +350,18 @@ input {
   color: rgba(195, 181, 217, 0.45);
 }
 
-.lobby-version a {
-  color: inherit;
+.legal-links {
+  display: inline;
 }
 
-.lobby-version a:hover,
-.lobby-version a:focus-visible {
-  color: rgba(195, 181, 217, 0.8);
+/* Full --text-dim instead of the faded version colour: small links need 4.5:1 contrast. */
+.legal-links a {
+  color: var(--text-dim);
+}
+
+.legal-links a:hover,
+.legal-links a:focus-visible {
+  color: var(--text);
 }
 
 .waiting-code {

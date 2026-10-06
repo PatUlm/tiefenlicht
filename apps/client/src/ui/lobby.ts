@@ -10,19 +10,12 @@ export interface LobbyHandlers {
   onJoin(code: string, name: string, takeOver: boolean): void;
 }
 
-const NAME_KEY = 'dungeon.playerName';
+/** Where earlier versions remembered the name; the name is no longer stored, so clear leftovers. */
+const LEGACY_NAME_KEY = 'dungeon.playerName';
 
-function loadName(): string {
+export function clearStoredName(): void {
   try {
-    return localStorage.getItem(NAME_KEY) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function saveName(name: string): void {
-  try {
-    localStorage.setItem(NAME_KEY, name);
+    localStorage.removeItem(LEGACY_NAME_KEY);
   } catch {
     /* ignore */
   }
@@ -34,16 +27,20 @@ const LEGAL_LINKS = [
   ['Datenschutz', 'https://www.nieda.de/datenschutz.html'],
 ] as const;
 
-/** Version line with the legal links; they open in a new tab so the lobby stays put. */
-function lobbyMeta(): HTMLDivElement {
-  const meta = el('div', 'lobby-version', `Version ${APP_VERSION}`);
+/** Small print with the legal links, optionally after the version; links open in a new tab so the lobby stays put. */
+function lobbyMeta(version?: string): HTMLDivElement {
+  const meta = el('div', 'lobby-version', version);
+  const nav = el('nav', 'legal-links');
+  nav.setAttribute('aria-label', 'Rechtliches');
   for (const [label, href] of LEGAL_LINKS) {
     const link = el('a', undefined, label);
     link.href = href;
     link.target = '_blank';
     link.rel = 'noopener';
-    meta.append(' · ', link);
+    if (version || nav.childElementCount) nav.append(' · ');
+    nav.append(link);
   }
+  meta.append(nav);
   return meta;
 }
 
@@ -55,6 +52,8 @@ export class LobbyUI {
   /** Shown on the start screen while the browser offers installing (Android Chrome). */
   private readonly installButton: HTMLButtonElement;
   private busy = false;
+  /** Name entered on this page, kept in memory only for returning to the start screen. */
+  private name = '';
 
   constructor(
     parent: HTMLElement,
@@ -81,7 +80,7 @@ export class LobbyUI {
     const nameInput = el('input');
     nameInput.maxLength = MAX_PLAYER_NAME_LENGTH;
     nameInput.placeholder = 'Dein Name';
-    nameInput.value = loadName();
+    nameInput.value = this.name;
     nameInput.autocomplete = 'off';
     nameField.append(el('label', undefined, 'Name'), nameInput);
 
@@ -98,7 +97,7 @@ export class LobbyUI {
         nameInput.focus();
         return null;
       }
-      saveName(value);
+      this.name = value;
       return value;
     };
     const create = button('Neues Spiel erstellen', prefillCode ? 'secondary' : '', () => {
@@ -141,7 +140,7 @@ export class LobbyUI {
       this.errorBox,
       this.installButton,
       el('div', 'lobby-foot', 'Zwei Spieler · Zwerg & Dunkelelf · Assets: KayKit (CC0)'),
-      lobbyMeta(),
+      lobbyMeta(`Version ${APP_VERSION}`),
     );
     (prefillCode || !nameInput.value ? nameInput : create).focus();
   }
@@ -164,6 +163,7 @@ export class LobbyUI {
       copy,
       waiting,
       el('div', 'lobby-foot', 'Tipp: Öffne den Link in einem zweiten Browserfenster, um lokal zu zweit zu spielen.'),
+      lobbyMeta(),
     );
   }
 
